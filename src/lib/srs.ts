@@ -54,9 +54,8 @@ export function calculateNextReview(word: Word, difficulty: Difficulty): Partial
   };
 }
 
-export function createNewWord(original: string, translation: string, autoTranslated = false): Word {
+export function createNewWord(original: string, translation: string, autoTranslated = false): Omit<Word, 'id'> {
   return {
-    id: crypto.randomUUID(),
     original: original.trim(),
     translation: translation.trim(),
     easeFactor: 2.5,
