@@ -14,7 +14,141 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      study_sessions: {
+        Row: {
+          correct: number
+          created_at: string
+          date: string
+          duration: number
+          id: string
+          incorrect: number
+          user_id: string
+          words_studied: number
+        }
+        Insert: {
+          correct?: number
+          created_at?: string
+          date?: string
+          duration?: number
+          id?: string
+          incorrect?: number
+          user_id: string
+          words_studied?: number
+        }
+        Update: {
+          correct?: number
+          created_at?: string
+          date?: string
+          duration?: number
+          id?: string
+          incorrect?: number
+          user_id?: string
+          words_studied?: number
+        }
+        Relationships: []
+      }
+      user_stats: {
+        Row: {
+          created_at: string
+          current_streak: number
+          daily_goal: number
+          id: string
+          last_study_date: string | null
+          longest_streak: number
+          total_sessions: number
+          total_words_learned: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_streak?: number
+          daily_goal?: number
+          id?: string
+          last_study_date?: string | null
+          longest_streak?: number
+          total_sessions?: number
+          total_words_learned?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          current_streak?: number
+          daily_goal?: number
+          id?: string
+          last_study_date?: string | null
+          longest_streak?: number
+          total_sessions?: number
+          total_words_learned?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      words: {
+        Row: {
+          auto_translated: boolean
+          category: string | null
+          created_at: string
+          ease_factor: number
+          example_sentence: string | null
+          id: string
+          interval: number
+          last_review: string | null
+          next_review: string
+          notes: string | null
+          original: string
+          part_of_speech: string | null
+          phonetic: string | null
+          repetitions: number
+          status: string
+          translation: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          auto_translated?: boolean
+          category?: string | null
+          created_at?: string
+          ease_factor?: number
+          example_sentence?: string | null
+          id?: string
+          interval?: number
+          last_review?: string | null
+          next_review?: string
+          notes?: string | null
+          original: string
+          part_of_speech?: string | null
+          phonetic?: string | null
+          repetitions?: number
+          status?: string
+          translation: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          auto_translated?: boolean
+          category?: string | null
+          created_at?: string
+          ease_factor?: number
+          example_sentence?: string | null
+          id?: string
+          interval?: number
+          last_review?: string | null
+          next_review?: string
+          notes?: string | null
+          original?: string
+          part_of_speech?: string | null
+          phonetic?: string | null
+          repetitions?: number
+          status?: string
+          translation?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
