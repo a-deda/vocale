@@ -31,7 +31,7 @@ export interface StudySession {
 export interface UserStats {
   currentStreak: number;
   longestStreak: number;
-  lastStudyDate: string;
+  lastStudyDate: string | null;
   totalWordsLearned: number;
   totalSessions: number;
   dailyGoal: number;

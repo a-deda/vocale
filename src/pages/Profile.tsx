@@ -1,16 +1,14 @@
 import { useStore } from '@/components/StoreProvider';
-import { User, Target, BookOpen, RotateCcw } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { User, Target, BookOpen, RotateCcw, LogOut } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 export default function Profile() {
   const { stats, words, updateStats } = useStore();
+  const { toast } = useToast();
 
-  const handleResetAll = () => {
-    if (confirm('Weet je zeker dat je alle data wilt wissen? Dit kan niet ongedaan worden.')) {
-      localStorage.removeItem('lexis-words');
-      localStorage.removeItem('lexis-stats');
-      localStorage.removeItem('lexis-sessions');
-      window.location.reload();
-    }
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
   };
 
   return (
@@ -19,7 +17,7 @@ export default function Profile() {
         <div className="h-20 w-20 rounded-full gradient-primary mx-auto flex items-center justify-center mb-3">
           <User className="h-10 w-10 text-primary-foreground" />
         </div>
-        <h1 className="text-xl font-bold text-foreground">Alex</h1>
+        <h1 className="text-xl font-bold text-foreground">Mijn Profiel</h1>
         <p className="text-sm text-muted-foreground">Italiaans leren vanuit het Nederlands</p>
       </div>
 
@@ -70,10 +68,10 @@ export default function Profile() {
       </div>
 
       <button
-        onClick={handleResetAll}
-        className="w-full flex items-center justify-center gap-2 rounded-lg border border-destructive/30 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+        onClick={handleSignOut}
+        className="w-full flex items-center justify-center gap-2 rounded-lg border border-border py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
       >
-        <RotateCcw className="h-4 w-4" /> Alle Data Wissen
+        <LogOut className="h-4 w-4" /> Uitloggen
       </button>
     </div>
   );
