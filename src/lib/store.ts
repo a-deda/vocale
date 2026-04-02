@@ -15,13 +15,24 @@ function saveToStorage<T>(key: string, value: T) {
 }
 
 const DEFAULT_STATS: UserStats = {
-  currentStreak: 0,
-  longestStreak: 0,
-  lastStudyDate: '',
-  totalWordsLearned: 0,
-  totalSessions: 0,
+  currentStreak: 7,
+  longestStreak: 12,
+  lastStudyDate: new Date().toISOString().split('T')[0],
+  totalWordsLearned: 48,
+  totalSessions: 14,
   dailyGoal: 20,
 };
+
+const SAMPLE_WORDS: Word[] = [
+  { id: '1', original: 'Effimero', translation: 'Vluchtig, vergankelijk', phonetic: '/ef.ˈfi.me.ro/', category: 'Academisch', partOfSpeech: 'bijvoeglijk naamwoord', easeFactor: 2.5, interval: 0, repetitions: 0, nextReview: new Date().toISOString(), createdAt: new Date(Date.now() - 86400000 * 2).toISOString(), status: 'new', autoTranslated: false },
+  { id: '2', original: 'Resilienza', translation: 'Veerkracht', phonetic: '/re.zi.ˈljɛn.tsa/', category: 'Psychologie', partOfSpeech: 'zelfstandig naamwoord', easeFactor: 2.5, interval: 1, repetitions: 1, nextReview: new Date().toISOString(), createdAt: new Date(Date.now() - 86400000 * 5).toISOString(), status: 'learning', autoTranslated: false },
+  { id: '3', original: 'Serenità', translation: 'Sereniteit, kalmte', phonetic: '/se.re.ni.ˈta/', category: 'Filosofie', partOfSpeech: 'zelfstandig naamwoord', easeFactor: 2.6, interval: 3, repetitions: 2, nextReview: new Date().toISOString(), createdAt: new Date(Date.now() - 86400000 * 7).toISOString(), status: 'review', autoTranslated: false },
+  { id: '4', original: 'Eloquenza', translation: 'Welsprekendheid', phonetic: '/e.lo.ˈkwɛn.tsa/', category: 'Literatuur', partOfSpeech: 'zelfstandig naamwoord', easeFactor: 2.8, interval: 14, repetitions: 4, nextReview: new Date(Date.now() + 86400000 * 5).toISOString(), createdAt: new Date(Date.now() - 86400000 * 14).toISOString(), status: 'stable', autoTranslated: false },
+  { id: '5', original: 'Luminescente', translation: 'Lichtgevend', phonetic: '/lu.mi.neʃ.ˈʃɛn.te/', category: 'Academisch', partOfSpeech: 'bijvoeglijk naamwoord', easeFactor: 2.5, interval: 0, repetitions: 0, nextReview: new Date().toISOString(), createdAt: new Date(Date.now() - 86400000).toISOString(), status: 'new', autoTranslated: true },
+  { id: '6', original: 'Ambivalenza', translation: 'Ambivalentie, tegenstrijdigheid', category: 'Psychologie', partOfSpeech: 'zelfstandig naamwoord', easeFactor: 2.4, interval: 1, repetitions: 1, nextReview: new Date().toISOString(), createdAt: new Date(Date.now() - 86400000 * 3).toISOString(), status: 'learning', autoTranslated: false },
+  { id: '7', original: 'Quintessenza', translation: 'Kwintessens, essentie', category: 'Filosofie', partOfSpeech: 'zelfstandig naamwoord', easeFactor: 2.5, interval: 0, repetitions: 0, nextReview: new Date().toISOString(), createdAt: new Date(Date.now() - 86400000 * 1).toISOString(), status: 'new', autoTranslated: false },
+  { id: '8', original: 'Ineffabile', translation: 'Onuitsprekelijk', phonetic: '/i.nef.ˈfa.bi.le/', category: 'Academisch', partOfSpeech: 'bijvoeglijk naamwoord', easeFactor: 2.3, interval: 2, repetitions: 1, nextReview: new Date().toISOString(), createdAt: new Date(Date.now() - 86400000 * 4).toISOString(), status: 'learning', autoTranslated: true },
+];
 
 export function useWordStore() {
   const [words, setWords] = useState<Word[]>(() => loadFromStorage('lexis-words', []));
