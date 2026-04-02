@@ -35,7 +35,7 @@ const SAMPLE_WORDS: Word[] = [
 ];
 
 export function useWordStore() {
-  const [words, setWords] = useState<Word[]>(() => loadFromStorage('lexis-words', []));
+  const [words, setWords] = useState<Word[]>(() => loadFromStorage('lexis-words', SAMPLE_WORDS));
   const [stats, setStats] = useState<UserStats>(() => loadFromStorage('lexis-stats', DEFAULT_STATS));
   const [sessions, setSessions] = useState<StudySession[]>(() => loadFromStorage('lexis-sessions', []));
 
