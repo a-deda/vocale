@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Zap, Loader2, Pencil, Trash2, Check, X, Bookmark } from 'lucide-react';
+import { Zap, Loader2, Trash2, Check, X } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
-import { createNewWord } from '@/lib/srs';
 import { Word } from '@/types/word';
 import { Switch } from '@/components/ui/switch';
 
@@ -38,28 +37,42 @@ export default function WordBank() {
     setPendingWords(newPending);
     setBulkInput('');
 
-    // Auto-translate missing translations
+    // Auto-translate missing translations via AI
     if (autoTranslateOn) {
-      const updated = [...newPending];
-      for (let i = 0; i < updated.length; i++) {
-        if (!updated[i].translation) {
-          try {
-            const translation = await autoTranslate(updated[i].original);
-            updated[i] = { ...updated[i], translation, translating: false };
-            setPendingWords([...updated]);
-          } catch {
-            updated[i] = { ...updated[i], translation: '[fout bij vertalen]', translating: false };
-            setPendingWords([...updated]);
-          }
+      const wordsToTranslate = newPending.filter(p => !p.translation).map(p => p.original);
+      if (wordsToTranslate.length > 0) {
+        try {
+          const translations = await autoTranslate(wordsToTranslate);
+          setPendingWords(prev => prev.map(p => {
+            if (p.translating) {
+              const translated = translations[p.original.toLowerCase()] || `[vertaling van "${p.original}"]`;
+              return { ...p, translation: translated, translating: false };
+            }
+            return p;
+          }));
+        } catch {
+          setPendingWords(prev => prev.map(p =>
+            p.translating ? { ...p, translation: '[fout bij vertalen]', translating: false } : p
+          ));
         }
       }
     }
   };
 
   const handleConfirmAll = () => {
-    const newWords = pendingWords
+    const newWords: Omit<Word, 'id'>[] = pendingWords
       .filter(p => p.original && p.translation && !p.translating)
-      .map(p => createNewWord(p.original, p.translation, p.autoTranslated));
+      .map(p => ({
+        original: p.original.trim(),
+        translation: p.translation.trim(),
+        easeFactor: 2.5,
+        interval: 0,
+        repetitions: 0,
+        nextReview: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        status: 'new' as const,
+        autoTranslated: p.autoTranslated,
+      }));
     addWords(newWords);
     setPendingWords([]);
   };
@@ -113,7 +126,7 @@ export default function WordBank() {
         </button>
       </div>
 
-      {/* Pending Words (editable before confirming) */}
+      {/* Pending Words */}
       {pendingWords.length > 0 && (
         <div className="glass-card rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
@@ -191,7 +204,6 @@ export default function WordBank() {
                     <button onClick={() => deleteWord(word.id)} className="text-muted-foreground hover:text-destructive p-1">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
-                    <Bookmark className="h-3.5 w-3.5 text-muted-foreground" />
                   </div>
                 </div>
                 <h4 className="text-base font-bold text-foreground mt-1">{word.original}</h4>

@@ -35,7 +35,6 @@ export default function Study() {
     } else {
       // Session complete
       addSession({
-        id: crypto.randomUUID(),
         date: new Date().toISOString(),
         wordsStudied: sessionWords.length,
         correct: sessionStats.correct + (difficulty !== 'hard' ? 1 : 0),
