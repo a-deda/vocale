@@ -43,7 +43,7 @@ export default function Study() {
       await updateWord(currentWord.id, updates);
       moveToNext();
     }, 1200);
-  }, [currentWord, selectedMC]);
+  }, [currentWord, selectedMC, updateWord, moveToNext]);
 
   // Handle typed answer submission (production phase)
   const handleSubmitAnswer = useCallback(() => {
