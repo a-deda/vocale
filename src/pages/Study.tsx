@@ -1,35 +1,78 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Volume2, Eye, EyeOff, Frown, Smile, Laugh } from 'lucide-react';
+import { ArrowLeft, Check, X, Minus } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
-import { getWordsForReview, calculateNextReview, getReviewIntervalText } from '@/lib/srs';
-import { Difficulty, Word } from '@/types/word';
+import { getWordsForReview, calculateNextReview, markIntroduced, fuzzyMatch, generateMCOptions, getReviewIntervalText } from '@/lib/srs';
+import type { ReviewRating } from '@/lib/srs';
+import { Word } from '@/types/word';
 import { Progress } from '@/components/ui/progress';
+
+type Phase = 'intro' | 'production';
+type AnswerState = null | { result: 'correct' | 'almost' | 'wrong'; input: string };
 
 export default function Study() {
   const navigate = useNavigate();
   const { words, updateWord, updateStreak, addSession } = useStore();
   const [sessionWords] = useState<Word[]>(() => getWordsForReview(words));
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [showTranslation, setShowTranslation] = useState(false);
+  const [answerState, setAnswerState] = useState<AnswerState>(null);
+  const [typedAnswer, setTypedAnswer] = useState('');
+  const [selectedMC, setSelectedMC] = useState<string | null>(null);
   const [sessionStats, setSessionStats] = useState({ correct: 0, incorrect: 0, startTime: Date.now() });
 
   const currentWord = sessionWords[currentIndex];
-  const progress = sessionWords.length > 0 ? ((currentIndex) / sessionWords.length) * 100 : 0;
+  const progress = sessionWords.length > 0 ? (currentIndex / sessionWords.length) * 100 : 0;
 
-  const handleRate = useCallback((difficulty: Difficulty) => {
+  // Determine phase: new words get intro, everything else gets production
+  const phase: Phase = currentWord?.status === 'new' ? 'intro' : 'production';
+
+  // Generate MC options for intro phase (memoized per word)
+  const mcOptions = useMemo(() => {
+    if (!currentWord || phase !== 'intro') return [];
+    return generateMCOptions(currentWord, words);
+  }, [currentWord?.id, phase]);
+
+  // Handle multiple choice answer (intro phase)
+  const handleMCAnswer = useCallback((selected: string) => {
+    if (!currentWord || selectedMC !== null) return;
+    setSelectedMC(selected);
+
+    // After short delay, mark introduced and move on
+    setTimeout(async () => {
+      const updates = markIntroduced(currentWord);
+      await updateWord(currentWord.id, updates);
+      moveToNext();
+    }, 1200);
+  }, [currentWord, selectedMC]);
+
+  // Handle typed answer submission (production phase)
+  const handleSubmitAnswer = useCallback(() => {
+    if (!currentWord || !typedAnswer.trim()) return;
+    const result = fuzzyMatch(typedAnswer, currentWord.original);
+    setAnswerState({ result, input: typedAnswer });
+  }, [currentWord, typedAnswer]);
+
+  // Handle rating after production answer
+  const handleRate = useCallback(async (rating: ReviewRating) => {
     if (!currentWord) return;
-    const updates = calculateNextReview(currentWord, difficulty);
-    updateWord(currentWord.id, updates);
-    updateStreak();
+    const updates = calculateNextReview(currentWord, rating);
+    await updateWord(currentWord.id, updates);
+    await updateStreak();
 
     setSessionStats(prev => ({
       ...prev,
-      correct: difficulty !== 'hard' ? prev.correct + 1 : prev.correct,
-      incorrect: difficulty === 'hard' ? prev.incorrect + 1 : prev.incorrect,
+      correct: rating === 'good' ? prev.correct + 1 : prev.correct,
+      incorrect: rating !== 'good' ? prev.incorrect + 1 : prev.incorrect,
     }));
 
-    setShowTranslation(false);
+    moveToNext();
+  }, [currentWord, updateWord, updateStreak]);
+
+  const moveToNext = useCallback(() => {
+    setAnswerState(null);
+    setTypedAnswer('');
+    setSelectedMC(null);
+
     if (currentIndex < sessionWords.length - 1) {
       setCurrentIndex(prev => prev + 1);
     } else {
@@ -37,14 +80,15 @@ export default function Study() {
       addSession({
         date: new Date().toISOString(),
         wordsStudied: sessionWords.length,
-        correct: sessionStats.correct + (difficulty !== 'hard' ? 1 : 0),
-        incorrect: sessionStats.incorrect + (difficulty === 'hard' ? 1 : 0),
+        correct: sessionStats.correct,
+        incorrect: sessionStats.incorrect,
         duration: Math.round((Date.now() - sessionStats.startTime) / 1000),
       });
-      setCurrentIndex(sessionWords.length); // trigger complete view
+      setCurrentIndex(sessionWords.length);
     }
-  }, [currentWord, currentIndex, sessionWords.length, updateWord, updateStreak, addSession, sessionStats]);
+  }, [currentIndex, sessionWords.length, addSession, sessionStats]);
 
+  // Empty state
   if (sessionWords.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center animate-slide-up">
@@ -93,78 +137,209 @@ export default function Study() {
         <button onClick={() => navigate('/')} className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <div className="text-right">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-2 py-0.5 rounded-full bg-secondary">
+            {phase === 'intro' ? 'Introductie' : 'Productie'}
+          </span>
           <span className="text-lg font-bold text-foreground">{currentIndex + 1}</span>
-          <span className="text-muted-foreground"> / {sessionWords.length} woorden</span>
+          <span className="text-muted-foreground"> / {sessionWords.length}</span>
         </div>
       </div>
       <Progress value={progress} className="h-1.5 mb-6 bg-border" />
 
-      {/* Flashcard */}
-      <div
-        className="glass-card rounded-2xl p-8 min-h-[350px] flex flex-col items-center justify-center cursor-pointer transition-all hover:border-primary/30 active:scale-[0.99]"
-        onClick={() => setShowTranslation(!showTranslation)}
-      >
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-            Italiaans {currentWord.partOfSpeech && `• ${currentWord.partOfSpeech}`}
-          </span>
-          <button className="text-muted-foreground hover:text-foreground p-1">
-            <Volume2 className="h-4 w-4" />
-          </button>
-        </div>
+      {phase === 'intro' ? (
+        <IntroCard
+          word={currentWord}
+          options={mcOptions}
+          selected={selectedMC}
+          onSelect={handleMCAnswer}
+        />
+      ) : (
+        <ProductionCard
+          word={currentWord}
+          typedAnswer={typedAnswer}
+          onTypeAnswer={setTypedAnswer}
+          answerState={answerState}
+          onSubmit={handleSubmitAnswer}
+          onRate={handleRate}
+        />
+      )}
+    </div>
+  );
+}
 
-        <h2 className="text-4xl md:text-5xl font-bold text-foreground text-center">
-          {currentWord.original}
-        </h2>
+// ─── Intro Card (Multiple Choice) ────────────────────────────
 
-        {currentWord.phonetic && (
-          <p className="text-lg text-accent italic mt-3">{currentWord.phonetic}</p>
-        )}
-
-        {showTranslation ? (
-          <div className="mt-8 animate-flip-in text-center">
-            <p className="text-xl text-foreground font-medium">{currentWord.translation}</p>
-            {currentWord.exampleSentence && (
-              <p className="text-sm text-muted-foreground mt-3 italic">"{currentWord.exampleSentence}"</p>
-            )}
-          </div>
-        ) : (
-          <button
-            className="mt-8 rounded-full bg-secondary px-6 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80 transition-colors"
-            onClick={(e) => { e.stopPropagation(); setShowTranslation(true); }}
-          >
-            Toon Vertaling
-          </button>
-        )}
+function IntroCard({
+  word, options, selected, onSelect,
+}: {
+  word: Word;
+  options: string[];
+  selected: string | null;
+  onSelect: (option: string) => void;
+}) {
+  const isCorrect = selected === word.translation;
+  return (
+    <div className="space-y-6">
+      {/* Show Italian word + translation */}
+      <div className="glass-card rounded-2xl p-8 text-center">
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+          Nieuw woord
+        </span>
+        <h2 className="text-4xl font-bold text-foreground mt-3">{word.original}</h2>
+        <p className="text-lg text-muted-foreground mt-3">{word.translation}</p>
       </div>
 
-      {/* Rating Buttons */}
-      {showTranslation && (
-        <div className="grid grid-cols-3 gap-3 mt-6 animate-slide-up">
-          {([
-            { diff: 'hard' as Difficulty, icon: Frown, label: 'Moeilijk', color: 'bg-destructive/10 border-destructive/30 text-destructive' },
-            { diff: 'good' as Difficulty, icon: Smile, label: 'Goed', color: 'bg-primary/10 border-primary/30 text-primary' },
-            { diff: 'easy' as Difficulty, icon: Laugh, label: 'Makkelijk', color: 'bg-success/10 border-success/30 text-success' },
-          ]).map(({ diff, icon: Icon, label, color }) => (
-            <button
-              key={diff}
-              onClick={() => handleRate(diff)}
-              className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-all hover:scale-105 active:scale-95 ${color}`}
-            >
-              <Icon className="h-6 w-6" />
-              <span className="text-sm font-semibold">{label}</span>
-              <span className="text-[10px] text-muted-foreground">
-                {getReviewIntervalText(diff, currentWord)}
-              </span>
-            </button>
-          ))}
+      {/* Multiple choice */}
+      <div>
+        <p className="text-sm text-muted-foreground text-center mb-3">Wat betekent dit woord?</p>
+        <div className="grid grid-cols-1 gap-2.5">
+          {options.map((opt, i) => {
+            const isThis = selected === opt;
+            const isRight = opt === word.translation;
+            let style = 'bg-card border-border hover:border-primary/40';
+            if (selected !== null) {
+              if (isRight) style = 'bg-success/10 border-success/50 text-success';
+              else if (isThis && !isRight) style = 'bg-destructive/10 border-destructive/50 text-destructive';
+              else style = 'bg-card border-border opacity-50';
+            }
+            return (
+              <button
+                key={i}
+                onClick={() => onSelect(opt)}
+                disabled={selected !== null}
+                className={`rounded-xl border p-4 text-left text-sm font-medium transition-all ${style}`}
+              >
+                {opt}
+              </button>
+            );
+          })}
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
 
-      <p className="text-center text-[10px] text-muted-foreground mt-4">
-        Klik op de kaart om de vertaling te onthullen
-      </p>
+// ─── Production Card (Typed Input) ───────────────────────────
+
+function ProductionCard({
+  word, typedAnswer, onTypeAnswer, answerState, onSubmit, onRate,
+}: {
+  word: Word;
+  typedAnswer: string;
+  onTypeAnswer: (v: string) => void;
+  answerState: AnswerState;
+  onSubmit: () => void;
+  onRate: (rating: ReviewRating) => void;
+}) {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !answerState) onSubmit();
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Show Dutch word */}
+      <div className="glass-card rounded-2xl p-8 text-center">
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+          Vertaal naar het Italiaans
+        </span>
+        <h2 className="text-3xl md:text-4xl font-bold text-foreground mt-3">{word.translation}</h2>
+      </div>
+
+      {/* Input */}
+      {!answerState ? (
+        <div className="space-y-3">
+          <input
+            type="text"
+            value={typedAnswer}
+            onChange={e => onTypeAnswer(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Typ het Italiaanse woord..."
+            autoFocus
+            className="w-full rounded-xl bg-card border border-border px-4 py-3.5 text-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 text-center"
+          />
+          <button
+            onClick={onSubmit}
+            disabled={!typedAnswer.trim()}
+            className="w-full gradient-primary rounded-xl px-6 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-40 transition-opacity"
+          >
+            Controleer
+          </button>
+        </div>
+      ) : (
+        <AnswerFeedback word={word} answerState={answerState} onRate={onRate} />
+      )}
+    </div>
+  );
+}
+
+// ─── Answer Feedback ─────────────────────────────────────────
+
+function AnswerFeedback({
+  word, answerState, onRate,
+}: {
+  word: Word;
+  answerState: NonNullable<AnswerState>;
+  onRate: (rating: ReviewRating) => void;
+}) {
+  const { result, input } = answerState;
+
+  const feedbackConfig = {
+    correct: { icon: Check, label: 'Goed!', color: 'text-success', bg: 'bg-success/10 border-success/30' },
+    almost: { icon: Minus, label: 'Bijna!', color: 'text-warning', bg: 'bg-warning/10 border-warning/30' },
+    wrong: { icon: X, label: 'Fout', color: 'text-destructive', bg: 'bg-destructive/10 border-destructive/30' },
+  }[result];
+
+  const FeedbackIcon = feedbackConfig.icon;
+
+  return (
+    <div className="space-y-4 animate-slide-up">
+      {/* Result banner */}
+      <div className={`rounded-xl border p-4 flex items-center gap-3 ${feedbackConfig.bg}`}>
+        <FeedbackIcon className={`h-6 w-6 ${feedbackConfig.color}`} />
+        <div>
+          <p className={`font-semibold ${feedbackConfig.color}`}>{feedbackConfig.label}</p>
+          {result !== 'correct' && (
+            <p className="text-sm text-muted-foreground">
+              Jouw antwoord: <span className="text-foreground">{input}</span>
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Always show correct spelling */}
+      <div className="glass-card rounded-xl p-4 text-center">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Correcte spelling</p>
+        <p className="text-2xl font-bold text-foreground">{word.original}</p>
+      </div>
+
+      {/* Rating buttons */}
+      <div className="grid grid-cols-3 gap-3">
+        <button
+          onClick={() => onRate('good')}
+          className="flex flex-col items-center gap-1.5 rounded-xl border p-3 bg-success/10 border-success/30 text-success transition-all hover:scale-105 active:scale-95"
+        >
+          <Check className="h-5 w-5" />
+          <span className="text-xs font-semibold">Goed</span>
+          <span className="text-[9px] text-muted-foreground">{getReviewIntervalText('good', word)}</span>
+        </button>
+        <button
+          onClick={() => onRate('almost')}
+          className="flex flex-col items-center gap-1.5 rounded-xl border p-3 bg-warning/10 border-warning/30 text-warning transition-all hover:scale-105 active:scale-95"
+        >
+          <Minus className="h-5 w-5" />
+          <span className="text-xs font-semibold">Bijna</span>
+          <span className="text-[9px] text-muted-foreground">1 dag</span>
+        </button>
+        <button
+          onClick={() => onRate('wrong')}
+          className="flex flex-col items-center gap-1.5 rounded-xl border p-3 bg-destructive/10 border-destructive/30 text-destructive transition-all hover:scale-105 active:scale-95"
+        >
+          <X className="h-5 w-5" />
+          <span className="text-xs font-semibold">Fout</span>
+          <span className="text-[9px] text-muted-foreground">1 dag</span>
+        </button>
+      </div>
     </div>
   );
 }
