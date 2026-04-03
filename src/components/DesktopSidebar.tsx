@@ -59,7 +59,7 @@ export default function DesktopSidebar() {
             <p className="text-[10px] text-muted-foreground">Lexis Lid</p>
           </div>
           <div className="flex items-center gap-1">
-            <Flame className="h-4 w-4 text-streak animate-streak-flame" />
+            <Flame className="h-4 w-4 text-streak" />
             <span className="text-sm font-bold text-foreground">{stats.currentStreak}</span>
           </div>
         </div>

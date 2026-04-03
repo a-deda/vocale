@@ -51,7 +51,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {/* Streak */}
         <div className="glass-card rounded-xl p-4 text-center">
-          <Flame className="h-8 w-8 mx-auto text-streak animate-streak-flame" />
+          <Flame className="h-8 w-8 mx-auto text-streak" />
           <p className="text-3xl font-bold text-foreground mt-2">{stats.currentStreak}</p>
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Dag Streak</p>
           <div className="flex gap-1 mt-3 justify-center">
