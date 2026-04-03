@@ -33,11 +33,29 @@ export default function Study() {
   }, [currentWord?.id, phase]);
 
   // Handle multiple choice answer (intro phase)
+  const moveToNext = useCallback(() => {
+    setAnswerState(null);
+    setTypedAnswer('');
+    setSelectedMC(null);
+
+    if (currentIndex < sessionWords.length - 1) {
+      setCurrentIndex(prev => prev + 1);
+    } else {
+      addSession({
+        date: new Date().toISOString(),
+        wordsStudied: sessionWords.length,
+        correct: sessionStats.correct,
+        incorrect: sessionStats.incorrect,
+        duration: Math.round((Date.now() - sessionStats.startTime) / 1000),
+      });
+      setCurrentIndex(sessionWords.length);
+    }
+  }, [currentIndex, sessionWords.length, addSession, sessionStats]);
+
   const handleMCAnswer = useCallback((selected: string) => {
     if (!currentWord || selectedMC !== null) return;
     setSelectedMC(selected);
 
-    // After short delay, mark introduced and move on
     setTimeout(async () => {
       const updates = markIntroduced(currentWord);
       await updateWord(currentWord.id, updates);
@@ -45,14 +63,12 @@ export default function Study() {
     }, 1200);
   }, [currentWord, selectedMC, updateWord, moveToNext]);
 
-  // Handle typed answer submission (production phase)
   const handleSubmitAnswer = useCallback(() => {
     if (!currentWord || !typedAnswer.trim()) return;
     const result = fuzzyMatch(typedAnswer, currentWord.original);
     setAnswerState({ result, input: typedAnswer });
   }, [currentWord, typedAnswer]);
 
-  // Handle rating after production answer
   const handleRate = useCallback(async (rating: ReviewRating) => {
     if (!currentWord) return;
     const updates = calculateNextReview(currentWord, rating);
@@ -66,27 +82,7 @@ export default function Study() {
     }));
 
     moveToNext();
-  }, [currentWord, updateWord, updateStreak]);
-
-  const moveToNext = useCallback(() => {
-    setAnswerState(null);
-    setTypedAnswer('');
-    setSelectedMC(null);
-
-    if (currentIndex < sessionWords.length - 1) {
-      setCurrentIndex(prev => prev + 1);
-    } else {
-      // Session complete
-      addSession({
-        date: new Date().toISOString(),
-        wordsStudied: sessionWords.length,
-        correct: sessionStats.correct,
-        incorrect: sessionStats.incorrect,
-        duration: Math.round((Date.now() - sessionStats.startTime) / 1000),
-      });
-      setCurrentIndex(sessionWords.length);
-    }
-  }, [currentIndex, sessionWords.length, addSession, sessionStats]);
+  }, [currentWord, updateWord, updateStreak, moveToNext]);
 
   // Empty state
   if (sessionWords.length === 0) {
