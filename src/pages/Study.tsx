@@ -178,16 +178,17 @@ function IntroCard({
   selected: string | null;
   onSelect: (option: string) => void;
 }) {
-  const isCorrect = selected === word.translation;
   return (
     <div className="space-y-6">
-      {/* Show Italian word + translation */}
+      {/* Show Italian word, translation only after answer */}
       <div className="glass-card rounded-2xl p-8 text-center">
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
           Nieuw woord
         </span>
         <h2 className="text-4xl font-bold text-foreground mt-3">{word.original}</h2>
-        <p className="text-lg text-muted-foreground mt-3">{word.translation}</p>
+        {selected !== null && (
+          <p className="text-lg text-muted-foreground mt-3">{word.translation}</p>
+        )}
       </div>
 
       {/* Multiple choice */}
