@@ -37,4 +37,4 @@ export interface UserStats {
   dailyGoal: number;
 }
 
-export type Difficulty = 'hard' | 'good' | 'easy';
+export type Difficulty = 'easy' | 'good' | 'hard' | 'again';
