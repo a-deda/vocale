@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Zap, Loader2, Trash2, Check, X } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
 import { Word } from '@/types/word';
@@ -119,10 +119,19 @@ export default function WordBank() {
     setPendingWords(prev => prev.filter((_, i) => i !== index));
   };
 
-  const filteredWords = words.filter(w =>
-    w.original.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    w.translation.toLowerCase().includes(searchQuery.toLowerCase())
-  ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const PAGE_SIZE = 30;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  const filteredWords = useMemo(() =>
+    words.filter(w =>
+      w.original.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      w.translation.toLowerCase().includes(searchQuery.toLowerCase())
+    ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [words, searchQuery]
+  );
+
+  const visibleWords = filteredWords.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredWords.length;
 
   return (
     <div className="space-y-6 animate-slide-up">
@@ -224,7 +233,7 @@ export default function WordBank() {
             onChange={e => setSearchQuery(e.target.value)}
           />
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {filteredWords.map(word => (
+            {visibleWords.map(word => (
               <div key={word.id} className="glass-card rounded-xl p-4 group">
                 <div className="flex items-start justify-between">
                   <span className={`text-[9px] uppercase tracking-wider font-medium ${
@@ -248,6 +257,14 @@ export default function WordBank() {
               </div>
             ))}
           </div>
+          {hasMore && (
+            <button
+              onClick={() => setVisibleCount(prev => prev + PAGE_SIZE)}
+              className="w-full mt-4 rounded-xl border border-border bg-card py-3 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
+            >
+              Meer laden ({filteredWords.length - visibleCount} resterend)
+            </button>
+          )}
         </div>
       )}
     </div>
