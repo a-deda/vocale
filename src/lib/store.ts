@@ -229,11 +229,46 @@ export function useWordStore() {
 // Real AI translation via edge function
 export async function autoTranslate(words: string[]): Promise<Record<string, string>> {
   console.log('Calling translate function with:', words);
-  const { data, error } = await supabase.functions.invoke('translate', {
-    body: { words },
-  });
-  console.log('Translate response:', { data, error });
-  if (error) throw new Error(error.message || 'Vertaalfout');
-  if (data?.error) throw new Error(data.error);
-  return data.translations || {};
+  
+  // Use fetch directly with timeout to avoid supabase.functions.invoke hanging
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  
+  const { data: { session } } = await supabase.auth.getSession();
+  const accessToken = session?.access_token;
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+  
+  try {
+    const response = await fetch(`${supabaseUrl}/functions/v1/translate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken || supabaseKey}`,
+        'apikey': supabaseKey,
+      },
+      body: JSON.stringify({ words }),
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Translate error response:', response.status, errorData);
+      throw new Error(errorData.error || `Vertaalfout (${response.status})`);
+    }
+    
+    const data = await response.json();
+    console.log('Translate response:', data);
+    if (data?.error) throw new Error(data.error);
+    return data.translations || {};
+  } catch (e: any) {
+    clearTimeout(timeoutId);
+    if (e.name === 'AbortError') {
+      throw new Error('Vertaling duurde te lang, probeer opnieuw.');
+    }
+    throw e;
+  }
 }
