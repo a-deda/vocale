@@ -93,8 +93,20 @@ export function createNewWord(original: string, translation: string, autoTransla
 
 export function getWordsForReview(words: Word[], limit = 20): Word[] {
   const now = new Date();
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
+
   const due = words
-    .filter(w => new Date(w.nextReview) <= now)
+    .filter(w => {
+      const reviewDate = new Date(w.nextReview);
+      // Strictly due
+      if (reviewDate <= now) return true;
+      // Learning words with few reps: include if due today
+      if (w.status === 'learning' && w.repetitions < 3 && reviewDate <= endOfDay) return true;
+      // New words are always available
+      if (w.status === 'new') return true;
+      return false;
+    })
     .sort((a, b) => {
       // Prioritize: new > learning > review > stable
       const priority = { new: 0, learning: 1, review: 2, stable: 3 };
