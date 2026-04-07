@@ -120,7 +120,24 @@ export default function Study() {
     }, 1500);
   }, [currentWord, typedAnswer, updateWord, updateStreak, moveToNext]);
 
-  // FLASHCARD: manual rating
+  // PRODUCTION: skip (don't know)
+  const handleSkip = useCallback(() => {
+    if (!currentWord) return;
+    setAnswerState({ result: 'wrong', input: '' });
+
+    setTimeout(async () => {
+      const updates = calculateNextReview(currentWord, 'wrong');
+      await updateWord(currentWord.id, updates);
+      await updateStreak();
+
+      setSessionStats(prev => ({
+        ...prev,
+        incorrect: prev.incorrect + 1,
+      }));
+
+      moveToNext();
+    }, 1500);
+  }, [currentWord, updateWord, updateStreak, moveToNext]);
   const handleFlashcardRate = useCallback(async (rating: ReviewRating) => {
     if (!currentWord) return;
     const updates = calculateNextReview(currentWord, rating);
