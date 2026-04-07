@@ -93,16 +93,14 @@ export function createNewWord(original: string, translation: string, autoTransla
 
 export function getWordsForReview(words: Word[], limit = 20): Word[] {
   const now = new Date();
-  const endOfDay = new Date();
-  endOfDay.setHours(23, 59, 59, 999);
 
   const due = words
     .filter(w => {
       const reviewDate = new Date(w.nextReview);
       // Strictly due
       if (reviewDate <= now) return true;
-      // Learning words with few reps: include if due today
-      if (w.status === 'learning' && w.repetitions < 3 && reviewDate <= endOfDay) return true;
+      // Learning words with few reps: always available (they need more practice)
+      if (w.status === 'learning' && w.repetitions < 3) return true;
       // New words are always available
       if (w.status === 'new') return true;
       return false;
