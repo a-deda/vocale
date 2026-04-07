@@ -2,42 +2,48 @@ import { Word } from '@/types/word';
 
 /**
  * SM-2 Spaced Repetition Algorithm
- * Two-phase review: Introduction (multiple choice) → Production (typed input)
+ * Three-phase review: Introduction (MC) → Production (typed) → Flashcard (self-rated)
  */
 
-export type ReviewRating = 'good' | 'almost' | 'wrong';
+export type ReviewRating = 'good' | 'almost' | 'wrong' | 'easy' | 'hard';
 
-// SM-2 ease factor adjustments per rating
-const EF_DELTA: Record<ReviewRating, number> = {
-  good: +0.1,
-  almost: -0.15,
-  wrong: -0.2,
-};
+const MAX_INTERVAL = 180; // days
 
 /**
- * Calculate next review after a production review.
- * "almost" counts as wrong for interval purposes.
+ * Calculate next review based on rating.
+ * 'hard' does NOT reset — it slightly increases the interval.
+ * 'easy' gives a bonus multiplier.
  */
 export function calculateNextReview(word: Word, rating: ReviewRating): Partial<Word> {
   let { easeFactor, interval, repetitions } = word;
 
-  // Adjust ease factor (min 1.3)
-  easeFactor = Math.max(1.3, easeFactor + EF_DELTA[rating]);
-
-  if (rating === 'good') {
-    repetitions += 1;
-    if (repetitions === 1) {
+  switch (rating) {
+    case 'easy':
+      easeFactor = Math.max(1.3, easeFactor + 0.15);
+      repetitions += 1;
+      interval = repetitions <= 1 ? 3 : Math.round(interval * easeFactor * 1.3);
+      break;
+    case 'good':
+      easeFactor = Math.max(1.3, easeFactor + 0.1);
+      repetitions += 1;
+      if (repetitions === 1) interval = 1;
+      else if (repetitions === 2) interval = 3;
+      else interval = Math.round(interval * easeFactor);
+      break;
+    case 'hard':
+      easeFactor = Math.max(1.3, easeFactor - 0.15);
+      repetitions += 1;
+      interval = Math.max(1, Math.round(interval * 1.2));
+      break;
+    case 'almost':
+    case 'wrong':
+      easeFactor = Math.max(1.3, easeFactor - 0.2);
+      repetitions = 0;
       interval = 1;
-    } else if (repetitions === 2) {
-      interval = 3;
-    } else {
-      interval = Math.round(interval * easeFactor);
-    }
-  } else {
-    // "almost" and "wrong" both reset interval
-    repetitions = 0;
-    interval = 1;
+      break;
   }
+
+  interval = Math.min(interval, MAX_INTERVAL);
 
   const nextReview = new Date();
   nextReview.setDate(nextReview.getDate() + interval);
@@ -57,17 +63,16 @@ export function calculateNextReview(word: Word, rating: ReviewRating): Partial<W
 }
 
 /**
- * After introduction phase, mark word as 'learning' with interval=1 day.
+ * After introduction phase, mark word as 'learning' with nextReview = NOW
+ * so it comes back in the same session for production.
  */
 export function markIntroduced(word: Word): Partial<Word> {
-  const nextReview = new Date();
-  nextReview.setDate(nextReview.getDate() + 1);
   return {
     status: 'learning',
-    interval: 1,
+    interval: 0,
     repetitions: 0,
     easeFactor: 2.5,
-    nextReview: nextReview.toISOString(),
+    nextReview: new Date().toISOString(), // NOW, not tomorrow
     lastReview: new Date().toISOString(),
   };
 }
@@ -101,7 +106,6 @@ export function getWordsForReview(words: Word[], limit = 20): Word[] {
 
 /**
  * Fuzzy match: normalize accents, compare with Levenshtein distance.
- * Returns 'correct' | 'almost' | 'wrong'
  */
 export function fuzzyMatch(input: string, correct: string): 'correct' | 'almost' | 'wrong' {
   const normalize = (s: string) => s.trim().toLowerCase();
@@ -111,13 +115,11 @@ export function fuzzyMatch(input: string, correct: string): 'correct' | 'almost'
   const b = normalize(correct);
 
   if (a === b) return 'correct';
-  if (stripAccents(a) === stripAccents(b)) return 'correct'; // accents optional
+  if (stripAccents(a) === stripAccents(b)) return 'correct';
 
-  // Levenshtein distance
   const dist = levenshtein(a, b);
   if (dist <= 1) return 'almost';
 
-  // Also check without accents
   const distNoAccent = levenshtein(stripAccents(a), stripAccents(b));
   if (distNoAccent <= 1) return 'almost';
 
@@ -158,13 +160,11 @@ export function generateMCOptions(correct: Word, allWords: Word[]): string[] {
     .slice(0, 3)
     .map(w => w.translation);
 
-  // If not enough words, fill with placeholders
   const fallbacks = ['onbekend', 'geen vertaling', 'anders'];
   while (others.length < 3) {
     others.push(fallbacks[others.length]);
   }
 
-  // Insert correct answer at random position
   const options = [...others];
   const insertAt = Math.floor(Math.random() * 4);
   options.splice(insertAt, 0, correct.translation);
