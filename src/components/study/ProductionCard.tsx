@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Word } from '@/types/word';
 import { Check, X, Minus } from 'lucide-react';
 
@@ -10,14 +10,31 @@ interface ProductionCardProps {
   onTypeAnswer: (v: string) => void;
   answerState: AnswerState | null;
   onSubmit: () => void;
+  onSkip?: () => void;
 }
 
 export default function ProductionCard({
-  word, typedAnswer, onTypeAnswer, answerState, onSubmit,
+  word, typedAnswer, onTypeAnswer, answerState, onSubmit, onSkip,
 }: ProductionCardProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!answerState) {
+      inputRef.current?.focus();
+    }
+  }, [word.id, answerState]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !answerState) onSubmit();
+    if (e.key === 'Enter' && !answerState) {
+      if (typedAnswer.trim()) {
+        onSubmit();
+      } else if (onSkip) {
+        onSkip();
+      }
+    }
   };
+
+  const hasInput = typedAnswer.trim().length > 0;
 
   return (
     <div className="space-y-6">
@@ -31,6 +48,7 @@ export default function ProductionCard({
       {!answerState ? (
         <div className="space-y-3">
           <input
+            ref={inputRef}
             type="text"
             value={typedAnswer}
             onChange={e => onTypeAnswer(e.target.value)}
@@ -40,11 +58,14 @@ export default function ProductionCard({
             className="w-full rounded-xl bg-card border border-border px-4 py-3.5 text-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 text-center"
           />
           <button
-            onClick={onSubmit}
-            disabled={!typedAnswer.trim()}
-            className="w-full gradient-primary rounded-xl px-6 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-40 transition-opacity"
+            onClick={hasInput ? onSubmit : onSkip}
+            className={`w-full rounded-xl px-6 py-3 text-sm font-semibold transition-opacity ${
+              hasInput
+                ? 'gradient-primary text-primary-foreground disabled:opacity-40'
+                : 'bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20'
+            }`}
           >
-            Controleer
+            {hasInput ? 'Controleer' : 'Ik weet het niet'}
           </button>
         </div>
       ) : (
