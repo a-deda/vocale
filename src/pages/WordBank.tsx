@@ -14,6 +14,7 @@ interface PendingWord {
 
 export default function WordBank() {
   const { words, addWords, deleteWord, autoTranslate } = useStore();
+  const { toast } = useToast();
   const [bulkInput, setBulkInput] = useState('');
   const [autoTranslateOn, setAutoTranslateOn] = useState(true);
   const [pendingWords, setPendingWords] = useState<PendingWord[]>([]);
