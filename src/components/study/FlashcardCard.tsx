@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Word } from '@/types/word';
 import { Check, X, Minus } from 'lucide-react';
 import type { ReviewRating } from '@/lib/srs';
@@ -69,5 +70,3 @@ export default function FlashcardCard({ word, onRate }: FlashcardCardProps) {
     </div>
   );
 }
-
-import { useState } from 'react';
