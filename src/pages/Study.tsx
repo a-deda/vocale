@@ -225,6 +225,7 @@ export default function Study() {
           onTypeAnswer={setTypedAnswer}
           answerState={answerState}
           onSubmit={handleSubmitAnswer}
+          onSkip={handleSkip}
         />
       ) : (
         <FlashcardCard
