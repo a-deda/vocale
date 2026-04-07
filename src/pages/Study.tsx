@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
@@ -19,12 +19,22 @@ export default function Study() {
 
   // Dynamic queue: starts with due words, intro'd words get re-added for production
   const [queue, setQueue] = useState<Word[]>(() => getWordsForReview(words));
+  const [initialized, setInitialized] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answerState, setAnswerState] = useState<AnswerState>(null);
   const [typedAnswer, setTypedAnswer] = useState('');
   const [selectedMC, setSelectedMC] = useState<string | null>(null);
   const [sessionStats, setSessionStats] = useState({ correct: 0, incorrect: 0, startTime: Date.now() });
   const totalWordsRef = useRef(0);
+
+  // Re-initialize queue when words load from async source
+  useEffect(() => {
+    if (!initialized && words.length > 0) {
+      const reviewWords = getWordsForReview(words);
+      setQueue(reviewWords);
+      setInitialized(true);
+    }
+  }, [words, initialized]);
 
   const currentWord = queue[currentIndex];
   const progress = queue.length > 0 ? (currentIndex / queue.length) * 100 : 0;
