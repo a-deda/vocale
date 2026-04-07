@@ -228,9 +228,11 @@ export function useWordStore() {
 
 // Real AI translation via edge function
 export async function autoTranslate(words: string[]): Promise<Record<string, string>> {
+  console.log('Calling translate function with:', words);
   const { data, error } = await supabase.functions.invoke('translate', {
     body: { words },
   });
+  console.log('Translate response:', { data, error });
   if (error) throw new Error(error.message || 'Vertaalfout');
   if (data?.error) throw new Error(data.error);
   return data.translations || {};
