@@ -27,6 +27,15 @@ export default function Study() {
   const [sessionStats, setSessionStats] = useState({ correct: 0, incorrect: 0, startTime: Date.now() });
   const totalWordsRef = useRef(0);
 
+  // Re-initialize queue when words load from async source
+  useEffect(() => {
+    if (!initialized && words.length > 0) {
+      const reviewWords = getWordsForReview(words);
+      setQueue(reviewWords);
+      setInitialized(true);
+    }
+  }, [words, initialized]);
+
   const currentWord = queue[currentIndex];
   const progress = queue.length > 0 ? (currentIndex / queue.length) * 100 : 0;
 
