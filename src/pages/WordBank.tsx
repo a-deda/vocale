@@ -18,21 +18,52 @@ export default function WordBank() {
   const [pendingWords, setPendingWords] = useState<PendingWord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Check if a word already exists in the word bank
+  const isDuplicate = (original: string) => {
+    return words.some(w => w.original.toLowerCase().trim() === original.toLowerCase().trim());
+  };
+
   const handleAddWords = async () => {
     const lines = bulkInput.split('\n').map(l => l.trim()).filter(Boolean);
     if (lines.length === 0) return;
 
-    const newPending: PendingWord[] = lines.map(line => {
+    const newPending: PendingWord[] = [];
+    const duplicates: string[] = [];
+
+    for (const line of lines) {
       const parts = line.split(/[-–—=:,]\s*/);
       const original = parts[0]?.trim() || '';
       const translation = parts[1]?.trim() || '';
-      return {
+
+      if (isDuplicate(original)) {
+        duplicates.push(original);
+        continue;
+      }
+
+      // Also check within the current batch for duplicates
+      if (newPending.some(p => p.original.toLowerCase().trim() === original.toLowerCase().trim())) {
+        continue;
+      }
+
+      newPending.push({
         original,
         translation,
         autoTranslated: !translation,
         translating: !translation && autoTranslateOn,
-      };
-    });
+      });
+    }
+
+    if (duplicates.length > 0) {
+      toast({
+        title: 'Dubbelingen overgeslagen',
+        description: `${duplicates.join(', ')} ${duplicates.length === 1 ? 'staat' : 'staan'} al in je woordenbank.`,
+      });
+    }
+
+    if (newPending.length === 0) {
+      setBulkInput('');
+      return;
+    }
 
     setPendingWords(newPending);
     setBulkInput('');
@@ -50,7 +81,8 @@ export default function WordBank() {
             }
             return p;
           }));
-        } catch {
+        } catch (e) {
+          console.error('Translation error:', e);
           setPendingWords(prev => prev.map(p =>
             p.translating ? { ...p, translation: '[fout bij vertalen]', translating: false } : p
           ));
