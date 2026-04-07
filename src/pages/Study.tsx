@@ -19,6 +19,7 @@ export default function Study() {
 
   // Dynamic queue: starts with due words, intro'd words get re-added for production
   const [queue, setQueue] = useState<Word[]>(() => getWordsForReview(words));
+  const [initialized, setInitialized] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answerState, setAnswerState] = useState<AnswerState>(null);
   const [typedAnswer, setTypedAnswer] = useState('');
