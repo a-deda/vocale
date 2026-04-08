@@ -106,10 +106,10 @@ export function getWordsForReview(words: Word[], limit = 20): Word[] {
       return false;
     })
     .sort((a, b) => {
-      // Prioritize: new > learning > review > stable
+      // Prioritize: new > learning > review > stable, then shuffle within same priority
       const priority = { new: 0, learning: 1, review: 2, stable: 3 };
       if (priority[a.status] !== priority[b.status]) return priority[a.status] - priority[b.status];
-      return new Date(a.nextReview).getTime() - new Date(b.nextReview).getTime();
+      return Math.random() - 0.5;
     });
   return due.slice(0, limit);
 }
@@ -149,6 +149,26 @@ function levenshtein(a: string, b: string): number {
     }
   }
   return dp[m][n];
+}
+
+/**
+ * Calculate a mastery score (0–100) for a word based on SRS metrics.
+ * Factors: repetitions, interval, easeFactor, status.
+ */
+export function getMasteryScore(word: Word): number {
+  if (word.status === 'new') return 0;
+
+  // Repetitions component (max 30 points at 8+ reps)
+  const repScore = Math.min(word.repetitions / 8, 1) * 30;
+
+  // Interval component (max 40 points at 60+ days)
+  const intervalScore = Math.min(word.interval / 60, 1) * 40;
+
+  // EaseFactor component (max 30 points, scaled from 1.3–3.0)
+  const efNormalized = (word.easeFactor - 1.3) / (3.0 - 1.3);
+  const efScore = Math.max(0, Math.min(efNormalized, 1)) * 30;
+
+  return Math.round(repScore + intervalScore + efScore);
 }
 
 export function getReviewIntervalText(rating: ReviewRating, word: Word): string {
