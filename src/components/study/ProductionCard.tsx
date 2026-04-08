@@ -20,7 +20,14 @@ export default function ProductionCard({
 
   useEffect(() => {
     if (!answerState) {
-      inputRef.current?.focus();
+      // Use requestAnimationFrame + small delay for reliable mobile focus
+      const raf = requestAnimationFrame(() => {
+        const timer = setTimeout(() => {
+          inputRef.current?.focus({ preventScroll: false });
+        }, 100);
+        return () => clearTimeout(timer);
+      });
+      return () => cancelAnimationFrame(raf);
     }
   }, [word.id, answerState]);
 
