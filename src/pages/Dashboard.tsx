@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Flame, Zap, BookOpen, Bookmark, TrendingUp, ChevronRight } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
@@ -6,7 +7,7 @@ import { Progress } from '@/components/ui/progress';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { words, stats } = useStore();
+  const { words, stats, sessions } = useStore();
   const dueWords = getWordsForReview(words);
   const todayLearned = words.filter(w => {
     if (!w.lastReview) return false;
@@ -15,6 +16,27 @@ export default function Dashboard() {
   const progressPercent = stats.dailyGoal > 0 ? Math.min(100, Math.round((todayLearned / stats.dailyGoal) * 100)) : 0;
   const avgMastery = words.length > 0 ? Math.round(words.reduce((sum, w) => sum + getMasteryScore(w), 0) / words.length) : 0;
 
+  // Build last 7 days chart data from real sessions
+  const weekData = useMemo(() => {
+    const dayLabels = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
+    const days: { label: string; words: number; minutes: number; isToday: boolean }[] = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().slice(0, 10);
+      const daySessions = sessions.filter(s => s.date.slice(0, 10) === dateStr);
+      days.push({
+        label: dayLabels[d.getDay()],
+        words: daySessions.reduce((sum, s) => sum + s.wordsStudied, 0),
+        minutes: Math.round(daySessions.reduce((sum, s) => sum + s.duration, 0) / 60),
+        isToday: i === 0,
+      });
+    }
+    return days;
+  }, [sessions]);
+
+  const maxWords = Math.max(1, ...weekData.map(d => d.words));
   const randomWord = words.length > 0 ? words[Math.floor(Math.random() * words.length)] : null;
 
   return (
@@ -125,22 +147,25 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-bold text-foreground">Leersnelheid</h3>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mt-0.5">Afgelopen 7 dagen</p>
           </div>
           <div className="flex gap-4 text-[10px] uppercase tracking-wider">
             <span className="text-accent font-medium">Woorden</span>
-            <span className="text-muted-foreground">Minuten</span>
           </div>
         </div>
         <div className="flex items-end gap-2 mt-4 h-24">
-          {['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'].map((day, i) => {
-            const height = [30, 45, 20, 60, 80, 40, 55][i];
+          {weekData.map((day, i) => {
+            const height = maxWords > 0 ? (day.words / maxWords) * 100 : 0;
             return (
-              <div key={day} className="flex-1 flex flex-col items-center gap-1">
+              <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                {day.words > 0 && (
+                  <span className="text-[9px] text-muted-foreground font-medium">{day.words}</span>
+                )}
                 <div
-                  className={`w-full rounded-t-md transition-all ${i === 4 ? 'gradient-accent' : 'bg-primary/40'}`}
-                  style={{ height: `${height}%` }}
+                  className={`w-full rounded-t-md transition-all ${day.isToday ? 'gradient-accent' : 'bg-primary/40'}`}
+                  style={{ height: `${Math.max(height, day.words > 0 ? 8 : 2)}%` }}
                 />
-                <span className="text-[10px] text-muted-foreground">{day}</span>
+                <span className={`text-[10px] ${day.isToday ? 'text-accent font-semibold' : 'text-muted-foreground'}`}>{day.label}</span>
               </div>
             );
           })}
