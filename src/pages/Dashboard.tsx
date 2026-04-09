@@ -7,7 +7,7 @@ import { Progress } from '@/components/ui/progress';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { words, stats } = useStore();
+  const { words, stats, sessions } = useStore();
   const dueWords = getWordsForReview(words);
   const todayLearned = words.filter(w => {
     if (!w.lastReview) return false;
