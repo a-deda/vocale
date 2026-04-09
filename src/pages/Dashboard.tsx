@@ -16,6 +16,27 @@ export default function Dashboard() {
   const progressPercent = stats.dailyGoal > 0 ? Math.min(100, Math.round((todayLearned / stats.dailyGoal) * 100)) : 0;
   const avgMastery = words.length > 0 ? Math.round(words.reduce((sum, w) => sum + getMasteryScore(w), 0) / words.length) : 0;
 
+  // Build last 7 days chart data from real sessions
+  const weekData = useMemo(() => {
+    const dayLabels = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
+    const days: { label: string; words: number; minutes: number; isToday: boolean }[] = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().slice(0, 10);
+      const daySessions = sessions.filter(s => s.date.slice(0, 10) === dateStr);
+      days.push({
+        label: dayLabels[d.getDay()],
+        words: daySessions.reduce((sum, s) => sum + s.wordsStudied, 0),
+        minutes: Math.round(daySessions.reduce((sum, s) => sum + s.duration, 0) / 60),
+        isToday: i === 0,
+      });
+    }
+    return days;
+  }, [sessions]);
+
+  const maxWords = Math.max(1, ...weekData.map(d => d.words));
   const randomWord = words.length > 0 ? words[Math.floor(Math.random() * words.length)] : null;
 
   return (
