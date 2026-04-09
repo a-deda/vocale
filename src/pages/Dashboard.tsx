@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Flame, Zap, BookOpen, Bookmark, TrendingUp, ChevronRight } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
