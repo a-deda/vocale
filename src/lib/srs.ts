@@ -158,17 +158,16 @@ function levenshtein(a: string, b: string): number {
 export function getMasteryScore(word: Word): number {
   if (word.status === 'new') return 0;
 
-  // Repetitions component (max 30 points at 8+ reps)
-  const repScore = Math.min(word.repetitions / 8, 1) * 30;
+  // Repetitions component (max 40 points at 6+ reps)
+  const repScore = Math.min(word.repetitions / 6, 1) * 40;
 
-  // Interval component (max 40 points at 60+ days)
-  const intervalScore = Math.min(word.interval / 60, 1) * 40;
+  // Interval component (max 50 points at 90+ days)
+  const intervalScore = Math.min(word.interval / 90, 1) * 50;
 
-  // EaseFactor component (max 30 points, scaled from 1.3–3.0)
-  const efNormalized = (word.easeFactor - 1.3) / (3.0 - 1.3);
-  const efScore = Math.max(0, Math.min(efNormalized, 1)) * 30;
+  // Status bonus (max 10 points)
+  const statusBonus = word.status === 'stable' ? 10 : word.status === 'review' ? 5 : 0;
 
-  return Math.round(repScore + intervalScore + efScore);
+  return Math.round(repScore + intervalScore + statusBonus);
 }
 
 export function getReviewIntervalText(rating: ReviewRating, word: Word): string {
