@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react';
 import { Zap, Loader2, Trash2, Check, X } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
 import { Word } from '@/types/word';
+import { getMasteryScore } from '@/lib/srs';
+import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 
