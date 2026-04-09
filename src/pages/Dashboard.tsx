@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Flame, Zap, BookOpen, Bookmark, TrendingUp, ChevronRight } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
-import { getWordsForReview } from '@/lib/srs';
+import { getWordsForReview, getMasteryScore } from '@/lib/srs';
 import { Progress } from '@/components/ui/progress';
 
 export default function Dashboard() {
