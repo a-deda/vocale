@@ -13,6 +13,7 @@ export default function Dashboard() {
     return new Date(w.lastReview).toDateString() === new Date().toDateString();
   }).length;
   const progressPercent = stats.dailyGoal > 0 ? Math.min(100, Math.round((todayLearned / stats.dailyGoal) * 100)) : 0;
+  const avgMastery = words.length > 0 ? Math.round(words.reduce((sum, w) => sum + getMasteryScore(w), 0) / words.length) : 0;
 
   const randomWord = words.length > 0 ? words[Math.floor(Math.random() * words.length)] : null;
 
