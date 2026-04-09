@@ -253,8 +253,12 @@ export default function WordBank() {
                 </div>
                 <h4 className="text-base font-bold text-foreground mt-1">{word.original}</h4>
                 <p className="text-sm text-muted-foreground mt-1">{word.translation}</p>
+                <div className="flex items-center gap-2 mt-2">
+                  <Progress value={getMasteryScore(word)} className="h-1.5 flex-1" />
+                  <span className="text-[10px] font-medium text-muted-foreground">{getMasteryScore(word)}%</span>
+                </div>
                 {word.autoTranslated && (
-                  <span className="text-[9px] bg-accent/10 text-accent px-1.5 py-0.5 rounded mt-2 inline-block">AI vertaald</span>
+                  <span className="text-[9px] bg-accent/10 text-accent px-1.5 py-0.5 rounded mt-1.5 inline-block">AI vertaald</span>
                 )}
               </div>
             ))}
