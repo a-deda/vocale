@@ -118,7 +118,7 @@ export function getWordsForReview(words: Word[], limit = 20): Word[] {
  * Fuzzy match: normalize accents, compare with Levenshtein distance.
  */
 export function fuzzyMatch(input: string, correct: string): 'correct' | 'almost' | 'wrong' {
-  const normalize = (s: string) => s.trim().toLowerCase();
+  const normalize = (s: string) => s.trim().toLowerCase().replace(/[''`ʼ]/g, "'");
   const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
   const a = normalize(input);

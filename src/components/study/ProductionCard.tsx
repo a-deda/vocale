@@ -20,14 +20,18 @@ export default function ProductionCard({
 
   useEffect(() => {
     if (!answerState) {
-      // Use requestAnimationFrame + small delay for reliable mobile focus
-      const raf = requestAnimationFrame(() => {
-        const timer = setTimeout(() => {
-          inputRef.current?.focus({ preventScroll: false });
-        }, 100);
-        return () => clearTimeout(timer);
-      });
-      return () => cancelAnimationFrame(raf);
+      // Multiple attempts for reliable mobile keyboard activation
+      const attempts = [50, 150, 300];
+      const timers = attempts.map(delay =>
+        setTimeout(() => {
+          if (inputRef.current) {
+            inputRef.current.focus();
+            // Some mobile browsers need a click to open the keyboard
+            inputRef.current.click();
+          }
+        }, delay)
+      );
+      return () => timers.forEach(clearTimeout);
     }
   }, [word.id, answerState]);
 
