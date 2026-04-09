@@ -99,6 +99,27 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Overall Mastery */}
+      {words.length > 0 && (
+        <div className="glass-card rounded-xl p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-bold text-foreground">Totale Beheersing</h3>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mt-0.5">
+                Gemiddelde score van {words.length} woorden
+              </p>
+            </div>
+            <p className="text-3xl font-bold text-foreground">{avgMastery}%</p>
+          </div>
+          <Progress value={avgMastery} className="mt-3 h-2.5 bg-border" />
+          <div className="flex justify-between mt-2 text-[10px] text-muted-foreground">
+            <span>{words.filter(w => w.status === 'new').length} nieuw</span>
+            <span>{words.filter(w => w.status === 'learning').length} aan het leren</span>
+            <span>{words.filter(w => w.status === 'stable').length} stabiel</span>
+          </div>
+        </div>
+      )}
+
       {/* Learning Velocity */}
       <div className="glass-card rounded-xl p-5">
         <div className="flex items-center justify-between">
