@@ -147,22 +147,25 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-bold text-foreground">Leersnelheid</h3>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mt-0.5">Afgelopen 7 dagen</p>
           </div>
           <div className="flex gap-4 text-[10px] uppercase tracking-wider">
             <span className="text-accent font-medium">Woorden</span>
-            <span className="text-muted-foreground">Minuten</span>
           </div>
         </div>
         <div className="flex items-end gap-2 mt-4 h-24">
-          {['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'].map((day, i) => {
-            const height = [30, 45, 20, 60, 80, 40, 55][i];
+          {weekData.map((day, i) => {
+            const height = maxWords > 0 ? (day.words / maxWords) * 100 : 0;
             return (
-              <div key={day} className="flex-1 flex flex-col items-center gap-1">
+              <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                {day.words > 0 && (
+                  <span className="text-[9px] text-muted-foreground font-medium">{day.words}</span>
+                )}
                 <div
-                  className={`w-full rounded-t-md transition-all ${i === 4 ? 'gradient-accent' : 'bg-primary/40'}`}
-                  style={{ height: `${height}%` }}
+                  className={`w-full rounded-t-md transition-all ${day.isToday ? 'gradient-accent' : 'bg-primary/40'}`}
+                  style={{ height: `${Math.max(height, day.words > 0 ? 8 : 2)}%` }}
                 />
-                <span className="text-[10px] text-muted-foreground">{day}</span>
+                <span className={`text-[10px] ${day.isToday ? 'text-accent font-semibold' : 'text-muted-foreground'}`}>{day.label}</span>
               </div>
             );
           })}
