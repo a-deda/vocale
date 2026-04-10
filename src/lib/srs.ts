@@ -88,6 +88,7 @@ export function createNewWord(original: string, translation: string, autoTransla
     createdAt: new Date().toISOString(),
     status: 'new',
     autoTranslated,
+    consecutiveErrors: 0,
   };
 }
 

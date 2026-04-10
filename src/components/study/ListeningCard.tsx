@@ -1,7 +1,6 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import { Word } from '@/types/word';
 import { Volume2, Check, X, Minus } from 'lucide-react';
-import { fuzzyMatch } from '@/lib/srs';
 
 type AnswerState = { result: 'correct' | 'almost' | 'wrong'; input: string };
 
@@ -31,22 +30,17 @@ export default function ListeningCard({
   word, typedAnswer, onTypeAnswer, answerState, onSubmit, onSkip,
 }: ListeningCardProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [played, setPlayed] = useState(false);
 
   // Auto-play on mount
   useEffect(() => {
-    // Voices may load async
-    const play = () => {
-      speak(word.original);
-      setPlayed(true);
-    };
+    const play = () => speak(word.original);
     if (window.speechSynthesis.getVoices().length > 0) {
       play();
     } else {
       window.speechSynthesis.onvoiceschanged = play;
     }
     return () => { window.speechSynthesis.onvoiceschanged = null; };
-  }, [word.id]);
+  }, [word.id, word.original]);
 
   useEffect(() => {
     if (!answerState) {
