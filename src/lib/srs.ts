@@ -206,3 +206,24 @@ export function generateMCOptions(correct: Word, allWords: Word[]): string[] {
   options.splice(insertAt, 0, correct.translation);
   return options;
 }
+
+export type ExerciseType = 'mc' | 'production' | 'listening' | 'fillblank' | 'flashcard';
+
+/**
+ * Pick exercise type based on word status, consecutive errors, and available data.
+ */
+export function pickExerciseType(word: Word): ExerciseType {
+  const pick = (options: ExerciseType[]) => options[Math.floor(Math.random() * options.length)];
+
+  if (word.status === 'new') return 'mc';
+
+  if (word.status === 'learning') {
+    if ((word.consecutiveErrors ?? 0) >= 2) return 'mc';
+    return pick(['production', 'listening']);
+  }
+
+  // review / stable
+  const options: ExerciseType[] = ['flashcard', 'listening'];
+  if (word.exampleSentence) options.push('fillblank');
+  return pick(options);
+}
