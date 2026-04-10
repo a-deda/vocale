@@ -2,22 +2,30 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
-import { getWordsForReview, calculateNextReview, markIntroduced, fuzzyMatch, generateMCOptions } from '@/lib/srs';
-import type { ReviewRating } from '@/lib/srs';
+import { getWordsForReview, calculateNextReview, markIntroduced, fuzzyMatch, generateMCOptions, pickExerciseType } from '@/lib/srs';
+import type { ReviewRating, ExerciseType } from '@/lib/srs';
 import { Word } from '@/types/word';
 import { Progress } from '@/components/ui/progress';
 import IntroCard from '@/components/study/IntroCard';
 import ProductionCard from '@/components/study/ProductionCard';
 import FlashcardCard from '@/components/study/FlashcardCard';
+import ListeningCard from '@/components/study/ListeningCard';
+import FillBlankCard from '@/components/study/FillBlankCard';
 
-type Phase = 'intro' | 'production' | 'flashcard';
 type AnswerState = null | { result: 'correct' | 'almost' | 'wrong'; input: string };
+
+const EXERCISE_LABELS: Record<ExerciseType, string> = {
+  mc: 'Multiple Choice',
+  production: 'Productie',
+  listening: 'Luisteren',
+  fillblank: 'Zin aanvullen',
+  flashcard: 'Flashcard',
+};
 
 export default function Study() {
   const navigate = useNavigate();
   const { words, updateWord, updateStreak, addSession } = useStore();
 
-  // Dynamic queue: starts with due words, intro'd words get re-added for production
   const [queue, setQueue] = useState<Word[]>(() => getWordsForReview(words));
   const [initialized, setInitialized] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -26,8 +34,9 @@ export default function Study() {
   const [selectedMC, setSelectedMC] = useState<string | null>(null);
   const [sessionStats, setSessionStats] = useState({ correct: 0, incorrect: 0, startTime: Date.now() });
   const totalWordsRef = useRef(0);
+  // Store the exercise type per word to keep it stable during the card lifecycle
+  const [exerciseTypeOverride, setExerciseTypeOverride] = useState<ExerciseType | null>(null);
 
-  // Re-initialize queue when words load from async source
   useEffect(() => {
     if (!initialized && words.length > 0) {
       const reviewWords = getWordsForReview(words);
@@ -37,25 +46,32 @@ export default function Study() {
   }, [words, initialized]);
 
   const currentWord = queue[currentIndex];
+
+  const exerciseType: ExerciseType = useMemo(() => {
+    if (!currentWord) return 'production';
+    if (exerciseTypeOverride) return exerciseTypeOverride;
+    return pickExerciseType(currentWord);
+  }, [currentWord?.id, currentWord?.status, currentWord?.consecutiveErrors, exerciseTypeOverride]);
+
+  // Store exercise type when word changes
+  useEffect(() => {
+    if (currentWord) {
+      setExerciseTypeOverride(pickExerciseType(currentWord));
+    }
+  }, [currentWord?.id]);
+
   const progress = queue.length > 0 ? (currentIndex / queue.length) * 100 : 0;
 
-  // Determine phase based on word status
-  const phase: Phase = useMemo(() => {
-    if (!currentWord) return 'production';
-    if (currentWord.status === 'new') return 'intro';
-    if (currentWord.status === 'learning') return 'production';
-    return 'flashcard'; // review, stable
-  }, [currentWord?.id, currentWord?.status]);
-
   const mcOptions = useMemo(() => {
-    if (!currentWord || phase !== 'intro') return [];
+    if (!currentWord || exerciseType !== 'mc') return [];
     return generateMCOptions(currentWord, words);
-  }, [currentWord?.id, phase]);
+  }, [currentWord?.id, exerciseType]);
 
   const moveToNext = useCallback(() => {
     setAnswerState(null);
     setTypedAnswer('');
     setSelectedMC(null);
+    setExerciseTypeOverride(null);
 
     if (currentIndex < queue.length - 1) {
       setCurrentIndex(prev => prev + 1);
@@ -68,36 +84,43 @@ export default function Study() {
         incorrect: sessionStats.incorrect,
         duration: Math.round((Date.now() - sessionStats.startTime) / 1000),
       });
-      setCurrentIndex(queue.length); // triggers complete screen
+      setCurrentIndex(queue.length);
     }
   }, [currentIndex, queue.length, addSession, sessionStats]);
 
-  // INTRO: after MC answer, mark introduced and re-add to queue for production
+  // MC answer handler (for intro + fallback)
   const handleMCAnswer = useCallback((selected: string) => {
     if (!currentWord || selectedMC !== null) return;
     setSelectedMC(selected);
 
     setTimeout(async () => {
-      const updates = markIntroduced(currentWord);
-      await updateWord(currentWord.id, updates);
+      if (currentWord.status === 'new') {
+        // Intro: mark introduced, re-add for production
+        const updates = markIntroduced(currentWord);
+        await updateWord(currentWord.id, updates);
+        setQueue(prev => [...prev, { ...currentWord, ...updates } as Word]);
+      } else {
+        // Fallback MC after errors: reset consecutiveErrors on correct
+        const isCorrect = selected === currentWord.translation;
+        const updates: Partial<Word> = { consecutiveErrors: isCorrect ? 0 : (currentWord.consecutiveErrors ?? 0) + 1 };
+        await updateWord(currentWord.id, updates);
 
-      // Re-add word to end of queue as 'learning' for production phase
-      setQueue(prev => [
-        ...prev,
-        { ...currentWord, ...updates } as Word,
-      ]);
-
+        setSessionStats(prev => ({
+          ...prev,
+          correct: isCorrect ? prev.correct + 1 : prev.correct,
+          incorrect: !isCorrect ? prev.incorrect + 1 : prev.incorrect,
+        }));
+      }
       moveToNext();
     }, 1200);
   }, [currentWord, selectedMC, updateWord, moveToNext]);
 
-  // PRODUCTION: submit typed answer, auto-rate after delay
+  // Typed answer handler (production, listening, fillblank)
   const handleSubmitAnswer = useCallback(() => {
     if (!currentWord || !typedAnswer.trim()) return;
     const result = fuzzyMatch(typedAnswer, currentWord.original);
     setAnswerState({ result, input: typedAnswer });
 
-    // Map fuzzy result to SRS rating
     const ratingMap: Record<string, ReviewRating> = {
       correct: 'good',
       almost: 'almost',
@@ -120,7 +143,7 @@ export default function Study() {
     }, 1500);
   }, [currentWord, typedAnswer, updateWord, updateStreak, moveToNext]);
 
-  // PRODUCTION: skip (don't know)
+  // Skip handler
   const handleSkip = useCallback(() => {
     if (!currentWord) return;
     setAnswerState({ result: 'wrong', input: '' });
@@ -130,14 +153,12 @@ export default function Study() {
       await updateWord(currentWord.id, updates);
       await updateStreak();
 
-      setSessionStats(prev => ({
-        ...prev,
-        incorrect: prev.incorrect + 1,
-      }));
-
+      setSessionStats(prev => ({ ...prev, incorrect: prev.incorrect + 1 }));
       moveToNext();
     }, 1500);
   }, [currentWord, updateWord, updateStreak, moveToNext]);
+
+  // Flashcard self-rate handler
   const handleFlashcardRate = useCallback(async (rating: ReviewRating) => {
     if (!currentWord) return;
     const updates = calculateNextReview(currentWord, rating);
@@ -203,7 +224,7 @@ export default function Study() {
         </button>
         <div className="flex items-center gap-2">
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-2 py-0.5 rounded-full bg-secondary">
-            {phase === 'intro' ? 'Introductie' : phase === 'production' ? 'Productie' : 'Flashcard'}
+            {EXERCISE_LABELS[exerciseType]}
           </span>
           <span className="text-lg font-bold text-foreground">{currentIndex + 1}</span>
           <span className="text-muted-foreground"> / {queue.length}</span>
@@ -211,15 +232,33 @@ export default function Study() {
       </div>
       <Progress value={progress} className="h-1.5 mb-6 bg-border" />
 
-      {phase === 'intro' ? (
+      {exerciseType === 'mc' ? (
         <IntroCard
           word={currentWord}
           options={mcOptions}
           selected={selectedMC}
           onSelect={handleMCAnswer}
         />
-      ) : phase === 'production' ? (
+      ) : exerciseType === 'production' ? (
         <ProductionCard
+          word={currentWord}
+          typedAnswer={typedAnswer}
+          onTypeAnswer={setTypedAnswer}
+          answerState={answerState}
+          onSubmit={handleSubmitAnswer}
+          onSkip={handleSkip}
+        />
+      ) : exerciseType === 'listening' ? (
+        <ListeningCard
+          word={currentWord}
+          typedAnswer={typedAnswer}
+          onTypeAnswer={setTypedAnswer}
+          answerState={answerState}
+          onSubmit={handleSubmitAnswer}
+          onSkip={handleSkip}
+        />
+      ) : exerciseType === 'fillblank' ? (
+        <FillBlankCard
           word={currentWord}
           typedAnswer={typedAnswer}
           onTypeAnswer={setTypedAnswer}
