@@ -90,6 +90,7 @@ export type Database = {
         Row: {
           auto_translated: boolean
           category: string | null
+          consecutive_errors: number
           created_at: string
           ease_factor: number
           example_sentence: string | null
@@ -110,6 +111,7 @@ export type Database = {
         Insert: {
           auto_translated?: boolean
           category?: string | null
+          consecutive_errors?: number
           created_at?: string
           ease_factor?: number
           example_sentence?: string | null
@@ -130,6 +132,7 @@ export type Database = {
         Update: {
           auto_translated?: boolean
           category?: string | null
+          consecutive_errors?: number
           created_at?: string
           ease_factor?: number
           example_sentence?: string | null
