@@ -16,12 +16,14 @@ const MAX_INTERVAL = 180; // days
  */
 export function calculateNextReview(word: Word, rating: ReviewRating): Partial<Word> {
   let { easeFactor, interval, repetitions } = word;
+  let consecutiveErrors = word.consecutiveErrors ?? 0;
 
   switch (rating) {
     case 'easy':
       easeFactor = Math.max(1.3, easeFactor + 0.15);
       repetitions += 1;
       interval = repetitions <= 1 ? 3 : Math.round(interval * easeFactor * 1.3);
+      consecutiveErrors = 0;
       break;
     case 'good':
       easeFactor = Math.max(1.3, easeFactor + 0.1);
@@ -29,17 +31,20 @@ export function calculateNextReview(word: Word, rating: ReviewRating): Partial<W
       if (repetitions === 1) interval = 1;
       else if (repetitions === 2) interval = 3;
       else interval = Math.round(interval * easeFactor);
+      consecutiveErrors = 0;
       break;
     case 'hard':
       easeFactor = Math.max(1.3, easeFactor - 0.15);
       repetitions += 1;
       interval = Math.max(1, Math.round(interval * 1.2));
+      consecutiveErrors = 0;
       break;
     case 'almost':
     case 'wrong':
       easeFactor = Math.max(1.3, easeFactor - 0.2);
       repetitions = 0;
       interval = 1;
+      consecutiveErrors += 1;
       break;
   }
 
@@ -56,6 +61,7 @@ export function calculateNextReview(word: Word, rating: ReviewRating): Partial<W
     easeFactor,
     interval,
     repetitions,
+    consecutiveErrors,
     nextReview: nextReview.toISOString(),
     lastReview: new Date().toISOString(),
     status,

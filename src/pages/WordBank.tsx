@@ -108,6 +108,7 @@ export default function WordBank() {
         createdAt: new Date().toISOString(),
         status: 'new' as const,
         autoTranslated: p.autoTranslated,
+        consecutiveErrors: 0,
       }));
     addWords(newWords);
     setPendingWords([]);
