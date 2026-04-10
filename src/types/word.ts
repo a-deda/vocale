@@ -17,6 +17,7 @@ export interface Word {
   createdAt: string;
   status: 'new' | 'learning' | 'review' | 'stable';
   autoTranslated: boolean;
+  consecutiveErrors: number; // track repeated wrong answers for fallback
 }
 
 export interface StudySession {

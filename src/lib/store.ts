@@ -31,6 +31,7 @@ function dbToWord(row: any): Word {
     createdAt: row.created_at,
     status: row.status as Word['status'],
     autoTranslated: row.auto_translated,
+    consecutiveErrors: row.consecutive_errors ?? 0,
   };
 }
 
@@ -149,6 +150,7 @@ export function useWordStore() {
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.translation !== undefined) dbUpdates.translation = updates.translation;
     if (updates.original !== undefined) dbUpdates.original = updates.original;
+    if (updates.consecutiveErrors !== undefined) dbUpdates.consecutive_errors = updates.consecutiveErrors;
 
     const { error } = await supabase.from('words').update(dbUpdates).eq('id', id);
     if (error) {
