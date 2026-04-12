@@ -125,14 +125,22 @@ export function getWordsForReview(words: Word[], limit = 20): Word[] {
  * Fuzzy match: normalize accents, compare with Levenshtein distance.
  */
 export function fuzzyMatch(input: string, correct: string): 'correct' | 'almost' | 'wrong' {
-  const normalize = (s: string) => s.trim().toLowerCase().replace(/[''`ʼ]/g, "'");
+  const normalize = (s: string) => s.trim().toLowerCase().replace(/[\u2018\u2019\u201B\u0060\u00B4\u02BC\u02BB\u2032\uFF07''`ʼ´]/g, "'");
   const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const stripApostrophes = (s: string) => s.replace(/'/g, '');
 
   const a = normalize(input);
   const b = normalize(correct);
 
   if (a === b) return 'correct';
   if (stripAccents(a) === stripAccents(b)) return 'correct';
+  if (stripApostrophes(stripAccents(a)) === stripApostrophes(stripAccents(b))) return 'correct';
+
+  // Check Italian morphological variants (gender/number endings)
+  const variants = generateItalianVariants(b);
+  for (const v of variants) {
+    if (a === v || stripAccents(a) === stripAccents(v)) return 'correct';
+  }
 
   const dist = levenshtein(a, b);
   if (dist <= 1) return 'almost';
@@ -140,7 +148,58 @@ export function fuzzyMatch(input: string, correct: string): 'correct' | 'almost'
   const distNoAccent = levenshtein(stripAccents(a), stripAccents(b));
   if (distNoAccent <= 1) return 'almost';
 
+  // Check variants with levenshtein too
+  for (const v of variants) {
+    if (levenshtein(stripAccents(a), stripAccents(v)) <= 1) return 'almost';
+  }
+
   return 'wrong';
+}
+
+/**
+ * Generate common Italian morphological variants (gender/number).
+ * e.g. "capaci" → ["capace", "capaco", "capaca"]
+ *      "bella" → ["bello", "belli", "belle"]
+ */
+function generateItalianVariants(normalized: string): string[] {
+  const variants: string[] = [];
+  const words = normalized.split(/\s+/);
+
+  // For multi-word expressions, generate variants for each word and combine
+  const wordVariants = words.map(w => [w, ...getWordVariants(w)]);
+
+  // Generate combinations (only vary one word at a time to keep it manageable)
+  for (let i = 0; i < words.length; i++) {
+    for (const variant of wordVariants[i]) {
+      if (variant === words[i]) continue;
+      const combo = [...words];
+      combo[i] = variant;
+      variants.push(combo.join(' '));
+    }
+  }
+
+  return variants;
+}
+
+function getWordVariants(word: string): string[] {
+  const endings: Record<string, string[]> = {
+    'o': ['a', 'i', 'e'],    // masc.sing → fem.sing, masc.pl, fem.pl
+    'a': ['o', 'i', 'e'],    // fem.sing → masc.sing, masc.pl, fem.pl
+    'i': ['o', 'a', 'e'],    // masc.pl → masc.sing, fem.sing, fem.pl
+    'e': ['o', 'a', 'i'],    // fem.pl / adj → other forms
+  };
+
+  const variants: string[] = [];
+  const lastChar = word.slice(-1);
+
+  if (word.length >= 3 && endings[lastChar]) {
+    const stem = word.slice(0, -1);
+    for (const alt of endings[lastChar]) {
+      variants.push(stem + alt);
+    }
+  }
+
+  return variants;
 }
 
 function levenshtein(a: string, b: string): number {

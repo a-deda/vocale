@@ -71,11 +71,14 @@ export default function Study() {
     setAnswerState(null);
     setTypedAnswer('');
     setSelectedMC(null);
-    setExerciseTypeOverride(null);
 
     if (currentIndex < queue.length - 1) {
+      // Pre-compute exercise type for next word to avoid flash
+      const nextWord = queue[currentIndex + 1];
+      setExerciseTypeOverride(nextWord ? pickExerciseType(nextWord) : null);
       setCurrentIndex(prev => prev + 1);
     } else {
+      setExerciseTypeOverride(null);
       totalWordsRef.current = queue.length;
       addSession({
         date: new Date().toISOString(),
@@ -86,7 +89,7 @@ export default function Study() {
       });
       setCurrentIndex(queue.length);
     }
-  }, [currentIndex, queue.length, addSession, sessionStats]);
+  }, [currentIndex, queue, addSession, sessionStats]);
 
   // MC answer handler (for intro + fallback)
   const handleMCAnswer = useCallback((selected: string) => {
