@@ -128,6 +128,7 @@ export function fuzzyMatch(input: string, correct: string): 'correct' | 'almost'
   const normalize = (s: string) => s.trim().toLowerCase().replace(/[\u2018\u2019\u201B\u0060\u00B4\u02BC\u02BB\u2032\uFF07''`ʼ´]/g, "'");
   const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const stripApostrophes = (s: string) => s.replace(/'/g, '');
+  const stripSpaces = (s: string) => s.replace(/\s+/g, '');
 
   const a = normalize(input);
   const b = normalize(correct);
@@ -135,6 +136,7 @@ export function fuzzyMatch(input: string, correct: string): 'correct' | 'almost'
   if (a === b) return 'correct';
   if (stripAccents(a) === stripAccents(b)) return 'correct';
   if (stripApostrophes(stripAccents(a)) === stripApostrophes(stripAccents(b))) return 'correct';
+  if (stripSpaces(stripAccents(a)) === stripSpaces(stripAccents(b))) return 'correct';
 
   // Check Italian morphological variants (gender/number endings)
   const variants = generateItalianVariants(b);
