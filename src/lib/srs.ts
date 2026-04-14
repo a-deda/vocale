@@ -275,16 +275,18 @@ export type ExerciseType = 'mc' | 'production' | 'listening' | 'fillblank' | 'fl
  */
 export function pickExerciseType(word: Word): ExerciseType {
   const pick = (options: ExerciseType[]) => options[Math.floor(Math.random() * options.length)];
+  const weighted = (main: ExerciseType, alt: ExerciseType, mainPct = 0.8) =>
+    Math.random() < mainPct ? main : alt;
 
-  if (word.status === 'new') return 'mc';
+  if (word.status === 'new') return weighted('mc', 'listening');
 
   if (word.status === 'learning') {
-    if ((word.consecutiveErrors ?? 0) >= 2) return 'mc';
-    return pick(['production', 'listening']);
+    if ((word.consecutiveErrors ?? 0) >= 2) return weighted('mc', 'listening');
+    return 'production';
   }
 
   // review / stable
-  const options: ExerciseType[] = ['flashcard', 'listening'];
+  const options: ExerciseType[] = ['flashcard', 'production'];
   if (word.exampleSentence) options.push('fillblank');
   return pick(options);
 }
