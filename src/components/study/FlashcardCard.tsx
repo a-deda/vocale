@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Word } from '@/types/word';
 import { Check, X, Minus } from 'lucide-react';
 import type { ReviewRating } from '@/lib/srs';
@@ -11,6 +11,11 @@ interface FlashcardCardProps {
 
 export default function FlashcardCard({ word, onRate }: FlashcardCardProps) {
   const [revealed, setRevealed] = useState(false);
+
+  // Reset revealed state when word changes
+  useEffect(() => {
+    setRevealed(false);
+  }, [word.id]);
 
   return (
     <div className="space-y-6">
