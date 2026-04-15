@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Word } from '@/types/word';
 import { Check, X, Minus } from 'lucide-react';
+import DiffHighlight from './DiffHighlight';
 
 type AnswerState = { result: 'correct' | 'almost' | 'wrong'; input: string };
 
@@ -103,7 +104,9 @@ function ProductionFeedback({ word, answerState }: { word: Word; answerState: An
         <FeedbackIcon className={`h-6 w-6 ${feedbackConfig.color}`} />
         <div>
           <p className={`font-semibold ${feedbackConfig.color}`}>{feedbackConfig.label}</p>
-          {result !== 'correct' && (
+          {result === 'almost' ? (
+            <DiffHighlight input={input} correct={word.original} />
+          ) : result === 'wrong' && input && (
             <p className="text-sm text-muted-foreground">
               Jouw antwoord: <span className="text-foreground">{input}</span>
             </p>
