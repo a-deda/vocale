@@ -37,6 +37,14 @@ export default function Study() {
   // Store the exercise type per word to keep it stable during the card lifecycle
   const [exerciseTypeOverride, setExerciseTypeOverride] = useState<ExerciseType | null>(null);
 
+  // Refs to avoid stale closures in setTimeout callbacks
+  const currentIndexRef = useRef(currentIndex);
+  currentIndexRef.current = currentIndex;
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  const sessionStatsRef = useRef(sessionStats);
+  sessionStatsRef.current = sessionStats;
+
   useEffect(() => {
     if (!initialized && words.length > 0) {
       const reviewWords = getWordsForReview(words);
@@ -72,24 +80,26 @@ export default function Study() {
     setTypedAnswer('');
     setSelectedMC(null);
 
-    if (currentIndex < queue.length - 1) {
-      // Pre-compute exercise type for next word to avoid flash
-      const nextWord = queue[currentIndex + 1];
+    const idx = currentIndexRef.current;
+    const q = queueRef.current;
+
+    if (idx < q.length - 1) {
+      const nextWord = q[idx + 1];
       setExerciseTypeOverride(nextWord ? pickExerciseType(nextWord) : null);
-      setCurrentIndex(prev => prev + 1);
+      setCurrentIndex(idx + 1);
     } else {
       setExerciseTypeOverride(null);
-      totalWordsRef.current = queue.length;
+      totalWordsRef.current = q.length;
       addSession({
         date: new Date().toISOString(),
-        wordsStudied: queue.length,
-        correct: sessionStats.correct,
-        incorrect: sessionStats.incorrect,
-        duration: Math.round((Date.now() - sessionStats.startTime) / 1000),
+        wordsStudied: q.length,
+        correct: sessionStatsRef.current.correct,
+        incorrect: sessionStatsRef.current.incorrect,
+        duration: Math.round((Date.now() - sessionStatsRef.current.startTime) / 1000),
       });
-      setCurrentIndex(queue.length);
+      setCurrentIndex(q.length);
     }
-  }, [currentIndex, queue, addSession, sessionStats]);
+  }, [addSession]);
 
   // MC answer handler (for intro + fallback)
   const handleMCAnswer = useCallback((selected: string) => {
