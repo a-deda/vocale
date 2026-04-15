@@ -10,6 +10,55 @@ export type ReviewRating = 'good' | 'almost' | 'wrong' | 'easy' | 'hard';
 const MAX_INTERVAL = 180; // days
 
 /**
+ * Adjust rating based on response speed, weighted by how long ago the word
+ * was last reviewed. Fast answers on words with a longer interval indicate
+ * stronger retention → upgrade 'good' to 'easy'. Slow answers on short-
+ * interval words are expected and don't penalize.
+ *
+ * Only applies to typed exercises (production/listening/fillblank).
+ * Only upgrades correct answers; incorrect answers are never changed.
+ */
+export function adjustRatingBySpeed(
+  baseRating: ReviewRating,
+  responseTimeMs: number,
+  word: Word
+): ReviewRating {
+  // Only adjust correct answers
+  if (baseRating !== 'good') return baseRating;
+
+  const seconds = responseTimeMs / 1000;
+
+  // Fast threshold scales with word length (longer words need more time)
+  const baseThreshold = 4; // seconds
+  const perCharBonus = 0.3;
+  const fastThreshold = baseThreshold + word.original.length * perCharBonus;
+
+  // Slow threshold: above this, consider downgrading
+  const slowThreshold = fastThreshold * 3;
+
+  // Recency factor: how many days since last review (0 = just reviewed)
+  const daysSinceReview = word.lastReview
+    ? (Date.now() - new Date(word.lastReview).getTime()) / (1000 * 60 * 60 * 24)
+    : word.interval; // fallback to interval if no lastReview
+
+  // If the word was reviewed very recently (< 1 day), no speed bonus
+  // The longer ago it was reviewed, the more impressive a fast answer is
+  const recencyWeight = Math.min(daysSinceReview / 3, 1); // 0→1 over 3 days
+
+  if (seconds <= fastThreshold && recencyWeight >= 0.5) {
+    // Fast answer on a word not recently practiced → upgrade to easy
+    return 'easy';
+  }
+
+  if (seconds >= slowThreshold && word.interval >= 7) {
+    // Slow answer on a word that should be well-known → downgrade to hard
+    return 'hard';
+  }
+
+  return 'good';
+}
+
+/**
  * Calculate next review based on rating.
  * 'hard' does NOT reset — it slightly increases the interval.
  * 'easy' gives a bonus multiplier.
