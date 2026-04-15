@@ -37,6 +37,14 @@ export default function Study() {
   // Store the exercise type per word to keep it stable during the card lifecycle
   const [exerciseTypeOverride, setExerciseTypeOverride] = useState<ExerciseType | null>(null);
 
+  // Refs to avoid stale closures in setTimeout callbacks
+  const currentIndexRef = useRef(currentIndex);
+  currentIndexRef.current = currentIndex;
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  const sessionStatsRef = useRef(sessionStats);
+  sessionStatsRef.current = sessionStats;
+
   useEffect(() => {
     if (!initialized && words.length > 0) {
       const reviewWords = getWordsForReview(words);
