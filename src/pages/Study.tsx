@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
-import { getWordsForReview, calculateNextReview, markIntroduced, fuzzyMatch, generateMCOptions, pickExerciseType } from '@/lib/srs';
+import { getWordsForReview, calculateNextReview, markIntroduced, fuzzyMatch, generateMCOptions, pickExerciseType, adjustRatingBySpeed } from '@/lib/srs';
 import type { ReviewRating, ExerciseType } from '@/lib/srs';
 import { Word } from '@/types/word';
 import { Progress } from '@/components/ui/progress';
@@ -34,6 +34,7 @@ export default function Study() {
   const [selectedMC, setSelectedMC] = useState<string | null>(null);
   const [sessionStats, setSessionStats] = useState({ correct: 0, incorrect: 0, startTime: Date.now() });
   const totalWordsRef = useRef(0);
+  const cardStartTimeRef = useRef(Date.now());
   // Store the exercise type per word to keep it stable during the card lifecycle
   const [exerciseTypeOverride, setExerciseTypeOverride] = useState<ExerciseType | null>(null);
 
@@ -61,10 +62,11 @@ export default function Study() {
     return pickExerciseType(currentWord);
   }, [currentWord?.id, currentWord?.status, currentWord?.consecutiveErrors, exerciseTypeOverride]);
 
-  // Store exercise type when word changes
+  // Store exercise type and reset timer when word changes
   useEffect(() => {
     if (currentWord) {
       setExerciseTypeOverride(pickExerciseType(currentWord));
+      cardStartTimeRef.current = Date.now();
     }
   }, [currentWord?.id]);
 
@@ -134,6 +136,8 @@ export default function Study() {
     const result = fuzzyMatch(typedAnswer, currentWord.original);
     setAnswerState({ result, input: typedAnswer });
 
+    const responseTimeMs = Date.now() - cardStartTimeRef.current;
+
     const ratingMap: Record<string, ReviewRating> = {
       correct: 'good',
       almost: 'almost',
@@ -141,7 +145,8 @@ export default function Study() {
     };
 
     setTimeout(async () => {
-      const rating = ratingMap[result];
+      const baseRating = ratingMap[result];
+      const rating = adjustRatingBySpeed(baseRating, responseTimeMs, currentWord);
       const updates = calculateNextReview(currentWord, rating);
       await updateWord(currentWord.id, updates);
       await updateStreak();
