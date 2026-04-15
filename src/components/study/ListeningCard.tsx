@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { Word } from '@/types/word';
 import { Volume2, Check, X, Minus } from 'lucide-react';
+import DiffHighlight from './DiffHighlight';
 
 type AnswerState = { result: 'correct' | 'almost' | 'wrong'; input: string };
 
@@ -122,7 +123,9 @@ function ListeningFeedback({ word, answerState }: { word: Word; answerState: Ans
         <Icon className={`h-6 w-6 ${config.color}`} />
         <div>
           <p className={`font-semibold ${config.color}`}>{config.label}</p>
-          {result !== 'correct' && input && (
+          {result === 'almost' ? (
+            <DiffHighlight input={input} correct={word.original} />
+          ) : result === 'wrong' && input && (
             <p className="text-sm text-muted-foreground">
               Jouw antwoord: <span className="text-foreground">{input}</span>
             </p>
