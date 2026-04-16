@@ -7,12 +7,15 @@ import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { formatTranslations, hasTranslation, mergeTranslation } from '@/lib/translation-utils';
+import { validateWordPair, WordWarning } from '@/lib/word-validation';
+import { AlertTriangle } from 'lucide-react';
 
 interface PendingWord {
   original: string;
   translation: string;
   autoTranslated: boolean;
   translating: boolean;
+  warnings: WordWarning[];
 }
 
 export default function WordBank() {
