@@ -278,10 +278,10 @@ export function getMasteryScore(word: Word): number {
   if (word.status === 'new') return 0;
 
   // Repetitions component (max 40 points at 6+ reps)
-  const repScore = Math.min(word.repetitions / 6, 1) * 40;
+  const repScore = Math.min(word.repetitions / 4, 1) * 40;
 
-  // Interval component (max 50 points at 90+ days)
-  const intervalScore = Math.min(word.interval / 90, 1) * 50;
+  // Interval component (max 50 points at 30+ days)
+  const intervalScore = Math.min(word.interval / 30, 1) * 50;
 
   // Status bonus (max 10 points)
   const statusBonus = word.status === 'stable' ? 10 : word.status === 'review' ? 5 : 0;
