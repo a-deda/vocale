@@ -243,31 +243,43 @@ export default function WordBank() {
           </div>
           <div className="space-y-2">
             {pendingWords.map((pw, i) => (
-              <div key={i} className="flex items-center gap-2 rounded-lg bg-background/40 p-2.5">
-                <input
-                  className="flex-1 bg-transparent text-sm font-medium text-foreground focus:outline-none"
-                  value={pw.original}
-                  onChange={e => handleEditPending(i, 'original', e.target.value)}
-                />
-                <span className="text-muted-foreground text-xs">→</span>
-                {pw.translating ? (
-                  <div className="flex-1 flex items-center gap-1.5 text-muted-foreground text-sm">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Vertalen...
-                  </div>
-                ) : (
+              <div key={i} className="rounded-lg bg-background/40 p-2.5">
+                <div className="flex items-center gap-2">
                   <input
-                    className="flex-1 bg-transparent text-sm text-muted-foreground focus:outline-none focus:text-foreground"
-                    value={pw.translation}
-                    onChange={e => handleEditPending(i, 'translation', e.target.value)}
-                    placeholder="Vertaling..."
+                    className="flex-1 bg-transparent text-sm font-medium text-foreground focus:outline-none"
+                    value={pw.original}
+                    onChange={e => handleEditPending(i, 'original', e.target.value)}
                   />
+                  <span className="text-muted-foreground text-xs">→</span>
+                  {pw.translating ? (
+                    <div className="flex-1 flex items-center gap-1.5 text-muted-foreground text-sm">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Vertalen...
+                    </div>
+                  ) : (
+                    <input
+                      className="flex-1 bg-transparent text-sm text-muted-foreground focus:outline-none focus:text-foreground"
+                      value={pw.translation}
+                      onChange={e => handleEditPending(i, 'translation', e.target.value)}
+                      placeholder="Vertaling..."
+                    />
+                  )}
+                  {pw.autoTranslated && !pw.translating && (
+                    <span className="text-[9px] bg-accent/20 text-accent px-1.5 py-0.5 rounded font-medium">AI</span>
+                  )}
+                  <button onClick={() => handleRemovePending(i)} className="text-muted-foreground hover:text-destructive p-1">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {pw.warnings.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {pw.warnings.map((w, wi) => (
+                      <span key={wi} className="flex items-center gap-1 text-[10px] text-warning bg-warning/10 px-2 py-0.5 rounded">
+                        <AlertTriangle className="h-3 w-3" /> {w.message}
+                      </span>
+                    ))}
+                  </div>
                 )}
-                {pw.autoTranslated && !pw.translating && (
-                  <span className="text-[9px] bg-accent/20 text-accent px-1.5 py-0.5 rounded font-medium">AI</span>
-                )}
-                <button onClick={() => handleRemovePending(i)} className="text-muted-foreground hover:text-destructive p-1">
-                  <X className="h-3.5 w-3.5" />
-                </button>
+              </div>
               </div>
             ))}
           </div>
