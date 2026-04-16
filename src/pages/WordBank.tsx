@@ -61,6 +61,7 @@ export default function WordBank() {
         translation,
         autoTranslated: !translation,
         translating: !translation && autoTranslateOn,
+        warnings: translation ? validateWordPair(original, translation) : [],
       });
     }
 
