@@ -23,10 +23,7 @@ export default function WordBank() {
   const [pendingWords, setPendingWords] = useState<PendingWord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Check if a word already exists in the word bank
-  const isDuplicate = (original: string) => {
-    return words.some(w => w.original.toLowerCase().trim() === original.toLowerCase().trim());
-  };
+  // Remove unused isDuplicate — replaced by inline merge logic
 
   const handleAddWords = async () => {
     const lines = bulkInput.split('\n').map(l => l.trim()).filter(Boolean);
