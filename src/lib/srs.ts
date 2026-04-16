@@ -1,4 +1,5 @@
 import { Word } from '@/types/word';
+import { formatTranslations } from '@/lib/translation-utils';
 
 /**
  * SM-2 Spaced Repetition Algorithm
@@ -314,11 +315,12 @@ export function getReviewIntervalText(rating: ReviewRating, word: Word): string 
  * Generate 3 wrong multiple-choice options from a word pool.
  */
 export function generateMCOptions(correct: Word, allWords: Word[]): string[] {
+  const correctLabel = formatTranslations(correct.translation);
   const others = allWords
     .filter(w => w.id !== correct.id && w.translation !== correct.translation)
     .sort(() => Math.random() - 0.5)
     .slice(0, 3)
-    .map(w => w.translation);
+    .map(w => formatTranslations(w.translation));
 
   const fallbacks = ['onbekend', 'geen vertaling', 'anders'];
   while (others.length < 3) {
@@ -327,7 +329,7 @@ export function generateMCOptions(correct: Word, allWords: Word[]): string[] {
 
   const options = [...others];
   const insertAt = Math.floor(Math.random() * 4);
-  options.splice(insertAt, 0, correct.translation);
+  options.splice(insertAt, 0, correctLabel);
   return options;
 }
 

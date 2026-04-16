@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { Word } from '@/types/word';
 import { Check, X, Minus } from 'lucide-react';
 import DiffHighlight from './DiffHighlight';
+import { formatTranslations } from '@/lib/translation-utils';
 
 type AnswerState = { result: 'correct' | 'almost' | 'wrong'; input: string };
 
@@ -54,7 +55,7 @@ export default function ProductionCard({
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
           Vertaal naar het Italiaans
         </span>
-        <h2 className="text-3xl md:text-4xl font-bold text-foreground mt-3">{word.translation}</h2>
+        <h2 className="text-3xl md:text-4xl font-bold text-foreground mt-3">{formatTranslations(word.translation)}</h2>
       </div>
 
       {!answerState ? (

@@ -1,4 +1,5 @@
 import { Word } from '@/types/word';
+import { formatTranslations } from '@/lib/translation-utils';
 
 interface IntroCardProps {
   word: Word;
@@ -16,7 +17,7 @@ export default function IntroCard({ word, options, selected, onSelect }: IntroCa
         </span>
         <h2 className="text-4xl font-bold text-foreground mt-3">{word.original}</h2>
         {selected !== null && (
-          <p className="text-lg text-muted-foreground mt-3">{word.translation}</p>
+          <p className="text-lg text-muted-foreground mt-3">{formatTranslations(word.translation)}</p>
         )}
       </div>
 
