@@ -280,7 +280,6 @@ export default function WordBank() {
                   </div>
                 )}
               </div>
-              </div>
             ))}
           </div>
         </div>
