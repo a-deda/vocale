@@ -174,6 +174,18 @@ export function getWordsForReview(words: Word[], limit = 20): Word[] {
  * Fuzzy match: normalize accents, compare with Levenshtein distance.
  */
 export function fuzzyMatch(input: string, correct: string): 'correct' | 'almost' | 'wrong' {
+  // Support multi-translation: split on semicolon, match against each, return best result
+  const translations = correct.split(';').map(t => t.trim()).filter(Boolean);
+  if (translations.length > 1) {
+    const results = translations.map(t => fuzzyMatchSingle(input, t));
+    if (results.includes('correct')) return 'correct';
+    if (results.includes('almost')) return 'almost';
+    return 'wrong';
+  }
+  return fuzzyMatchSingle(input, correct);
+}
+
+function fuzzyMatchSingle(input: string, correct: string): 'correct' | 'almost' | 'wrong' {
   const normalize = (s: string) => s.trim().toLowerCase().replace(/[\u2018\u2019\u201B\u0060\u00B4\u02BC\u02BB\u2032\uFF07''`ʼ´]/g, "'");
   const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const stripApostrophes = (s: string) => s.replace(/'/g, '');

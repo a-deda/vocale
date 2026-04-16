@@ -6,6 +6,7 @@ import { getMasteryScore } from '@/lib/srs';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
+import { formatTranslations, hasTranslation, mergeTranslation } from '@/lib/translation-utils';
 
 interface PendingWord {
   original: string;
@@ -15,7 +16,7 @@ interface PendingWord {
 }
 
 export default function WordBank() {
-  const { words, addWords, deleteWord, autoTranslate } = useStore();
+  const { words, addWords, deleteWord, updateWord, autoTranslate } = useStore();
   const { toast } = useToast();
   const [bulkInput, setBulkInput] = useState('');
   const [autoTranslateOn, setAutoTranslateOn] = useState(true);
@@ -32,15 +33,22 @@ export default function WordBank() {
     if (lines.length === 0) return;
 
     const newPending: PendingWord[] = [];
-    const duplicates: string[] = [];
+    const merged: string[] = [];
 
     for (const line of lines) {
       const parts = line.split(/[-–—=:,]\s*/);
       const original = parts[0]?.trim() || '';
       const translation = parts[1]?.trim() || '';
 
-      if (isDuplicate(original)) {
-        duplicates.push(original);
+      // Check if word already exists
+      const existing = words.find(w => w.original.toLowerCase().trim() === original.toLowerCase().trim());
+      if (existing) {
+        // If a new translation is provided and it's different, merge it
+        if (translation && !hasTranslation(existing.translation, translation)) {
+          const mergedTranslation = mergeTranslation(existing.translation, translation);
+          updateWord(existing.id, { translation: mergedTranslation });
+          merged.push(original);
+        }
         continue;
       }
 
@@ -57,10 +65,10 @@ export default function WordBank() {
       });
     }
 
-    if (duplicates.length > 0) {
+    if (merged.length > 0) {
       toast({
-        title: 'Dubbelingen overgeslagen',
-        description: `${duplicates.join(', ')} ${duplicates.length === 1 ? 'staat' : 'staan'} al in je woordenbank.`,
+        title: 'Vertalingen samengevoegd',
+        description: `Nieuwe betekenis toegevoegd aan: ${merged.join(', ')}`,
       });
     }
 
@@ -253,7 +261,7 @@ export default function WordBank() {
                   </div>
                 </div>
                 <h4 className="text-base font-bold text-foreground mt-1">{word.original}</h4>
-                <p className="text-sm text-muted-foreground mt-1">{word.translation}</p>
+                <p className="text-sm text-muted-foreground mt-1">{formatTranslations(word.translation)}</p>
                 <div className="flex items-center gap-2 mt-2">
                   <Progress value={getMasteryScore(word)} className="h-1.5 flex-1" />
                   <span className="text-[10px] font-medium text-muted-foreground">{getMasteryScore(word)}%</span>
