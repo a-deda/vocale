@@ -122,7 +122,14 @@ export default function WordBank() {
   };
 
   const handleEditPending = (index: number, field: 'original' | 'translation', value: string) => {
-    setPendingWords(prev => prev.map((p, i) => i === index ? { ...p, [field]: value } : p));
+    setPendingWords(prev => prev.map((p, i) => {
+      if (i !== index) return p;
+      const updated = { ...p, [field]: value };
+      updated.warnings = (updated.original && updated.translation && !updated.translating)
+        ? validateWordPair(updated.original, updated.translation)
+        : [];
+      return updated;
+    }));
   };
 
   const handleRemovePending = (index: number) => {
