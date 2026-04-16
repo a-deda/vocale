@@ -36,10 +36,7 @@ export default function Study() {
   const [sessionStats, setSessionStats] = useState({ correct: 0, incorrect: 0, startTime: Date.now() });
   const totalWordsRef = useRef(0);
   const cardStartTimeRef = useRef(Date.now());
-  // Store the exercise type per word to keep it stable during the card lifecycle
-  const [exerciseTypeOverride, setExerciseTypeOverride] = useState<ExerciseType | null>(null);
 
-  // Mute listening exercises for 30 minutes
   const [listeningMutedUntil, setListeningMutedUntil] = useState<number | null>(() => {
     const stored = sessionStorage.getItem('listeningMutedUntil');
     if (stored) {
@@ -61,13 +58,21 @@ export default function Study() {
     }
   }, [isListeningMuted]);
 
-  // Refs to avoid stale closures in setTimeout callbacks
   const currentIndexRef = useRef(currentIndex);
-  currentIndexRef.current = currentIndex;
   const queueRef = useRef(queue);
-  queueRef.current = queue;
   const sessionStatsRef = useRef(sessionStats);
-  sessionStatsRef.current = sessionStats;
+
+  useEffect(() => {
+    currentIndexRef.current = currentIndex;
+  }, [currentIndex]);
+
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
+
+  useEffect(() => {
+    sessionStatsRef.current = sessionStats;
+  }, [sessionStats]);
 
   useEffect(() => {
     if (!initialized && words.length > 0) {
@@ -79,31 +84,31 @@ export default function Study() {
 
   const currentWord = queue[currentIndex];
 
+  const getEffectiveExerciseType = useCallback((word: Word): ExerciseType => {
+    let type = pickExerciseType(word);
+    if (type === 'listening' && isListeningMuted) {
+      type = 'production';
+    }
+    return type;
+  }, [isListeningMuted]);
+
   const exerciseType: ExerciseType = useMemo(() => {
     if (!currentWord) return 'production';
-    if (exerciseTypeOverride) return exerciseTypeOverride;
-    return pickExerciseType(currentWord);
-  }, [currentWord?.id, currentWord?.status, currentWord?.consecutiveErrors, exerciseTypeOverride]);
+    return getEffectiveExerciseType(currentWord);
+  }, [currentWord, getEffectiveExerciseType]);
 
-  // Store exercise type and reset timer when word changes
   useEffect(() => {
     if (currentWord) {
-      let type = pickExerciseType(currentWord);
-      // Skip listening if muted — fall back to production
-      if (type === 'listening' && isListeningMuted) {
-        type = 'production';
-      }
-      setExerciseTypeOverride(type);
       cardStartTimeRef.current = Date.now();
     }
-  }, [currentWord?.id, isListeningMuted]);
+  }, [currentWord?.id]);
 
   const progress = queue.length > 0 ? (currentIndex / queue.length) * 100 : 0;
 
   const mcOptions = useMemo(() => {
     if (!currentWord || exerciseType !== 'mc') return [];
     return generateMCOptions(currentWord, words);
-  }, [currentWord?.id, exerciseType]);
+  }, [currentWord?.id, exerciseType, words]);
 
   const moveToNext = useCallback(() => {
     setAnswerState(null);
@@ -114,25 +119,19 @@ export default function Study() {
     const q = queueRef.current;
 
     if (idx < q.length - 1) {
-      const nextWord = q[idx + 1];
-      setExerciseTypeOverride(nextWord ? (() => {
-        let t = pickExerciseType(nextWord);
-        if (t === 'listening' && isListeningMuted) t = 'production';
-        return t;
-      })() : null);
-      setCurrentIndex(idx + 1);
-    } else {
-      setExerciseTypeOverride(null);
-      totalWordsRef.current = q.length;
-      addSession({
-        date: new Date().toISOString(),
-        wordsStudied: q.length,
-        correct: sessionStatsRef.current.correct,
-        incorrect: sessionStatsRef.current.incorrect,
-        duration: Math.round((Date.now() - sessionStatsRef.current.startTime) / 1000),
-      });
-      setCurrentIndex(q.length);
+      setCurrentIndex(prev => prev + 1);
+      return;
     }
+
+    totalWordsRef.current = q.length;
+    void addSession({
+      date: new Date().toISOString(),
+      wordsStudied: q.length,
+      correct: sessionStatsRef.current.correct,
+      incorrect: sessionStatsRef.current.incorrect,
+      duration: Math.round((Date.now() - sessionStatsRef.current.startTime) / 1000),
+    });
+    setCurrentIndex(q.length);
   }, [addSession]);
 
   // MC answer handler (for intro + fallback)

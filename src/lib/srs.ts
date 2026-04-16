@@ -191,32 +191,30 @@ function fuzzyMatchSingle(input: string, correct: string): 'correct' | 'almost' 
   const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const stripApostrophes = (s: string) => s.replace(/'/g, '');
   const stripSpaces = (s: string) => s.replace(/\s+/g, '');
-  const stripEllipsis = (s: string) => s.replace(/\.{2,}/g, '').replace(/…/g, '');
+  const stripEllipsis = (s: string) => s.replace(/\.{2,}/g, ' ').replace(/…/g, ' ').replace(/\s+/g, ' ').trim();
+  const normalizeFlexible = (s: string) => stripSpaces(stripApostrophes(stripEllipsis(stripAccents(s))));
 
   const a = normalize(input);
   const b = normalize(correct);
+  const flexibleA = normalizeFlexible(a);
+  const flexibleB = normalizeFlexible(b);
 
   if (a === b) return 'correct';
   if (stripAccents(a) === stripAccents(b)) return 'correct';
   if (stripApostrophes(stripAccents(a)) === stripApostrophes(stripAccents(b))) return 'correct';
   if (stripSpaces(stripAccents(a)) === stripSpaces(stripAccents(b))) return 'correct';
   if (stripEllipsis(stripAccents(a)) === stripEllipsis(stripAccents(b))) return 'correct';
+  if (flexibleA === flexibleB) return 'correct';
 
-  // Check Italian morphological variants (gender/number endings)
   const variants = generateItalianVariants(b);
   for (const v of variants) {
-    if (a === v || stripAccents(a) === stripAccents(v)) return 'correct';
+    if (a === v || stripAccents(a) === stripAccents(v) || flexibleA === normalizeFlexible(v)) return 'correct';
   }
 
-  const dist = levenshtein(a, b);
-  if (dist <= 1) return 'almost';
+  if (levenshtein(flexibleA, flexibleB) <= 1) return 'almost';
 
-  const distNoAccent = levenshtein(stripAccents(a), stripAccents(b));
-  if (distNoAccent <= 1) return 'almost';
-
-  // Check variants with levenshtein too
   for (const v of variants) {
-    if (levenshtein(stripAccents(a), stripAccents(v)) <= 1) return 'almost';
+    if (levenshtein(flexibleA, normalizeFlexible(v)) <= 1) return 'almost';
   }
 
   return 'wrong';
