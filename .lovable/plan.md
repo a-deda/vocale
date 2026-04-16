@@ -1,24 +1,17 @@
 
-
-## Plan: MC Voorrang op Luisteren
+## Plan: Mastery Score Sneller naar 100%
 
 ### Wijziging
-Eén bestand: `src/lib/srs.ts`, functie `pickExerciseType()`.
+Eén bestand: `src/lib/srs.ts`, functie `getMasteryScore()`.
 
-### Nieuwe logica
+### Huidige formule
+- Herhalingen: max 40 pt bij 6+ reps
+- Interval: max 50 pt bij 90+ dagen
+- Status bonus: max 10 pt
 
-```text
-status = 'new':
-  80% MC, 20% luisteren
+### Nieuwe formule
+- Herhalingen: max 40 pt bij **4+** reps (was 6)
+- Interval: max 50 pt bij **30** dagen (was 90)
+- Status bonus: max 10 pt (ongewijzigd)
 
-status = 'learning':
-  consecutiveErrors >= 2  → 80% MC, 20% luisteren (fallback)
-  anders                  → productie (altijd)
-
-status = 'review'/'stable':
-  exampleSentence exists  → willekeurig: flashcard, productie, of zin aanvullen
-  anders                  → willekeurig: flashcard of productie
-```
-
-Luisteren verdwijnt volledig uit review/stable en wordt in de introductie-/fallbackfase ondergeschikt aan MC (slechts 20% kans).
-
+Dit betekent dat een woord na ~4 correcte reviews over ~1 maand al 100% kan bereiken, in plaats van 6 reviews over 3 maanden.
