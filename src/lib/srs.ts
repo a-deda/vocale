@@ -1,4 +1,5 @@
 import { Word } from '@/types/word';
+import { formatTranslations } from '@/lib/translation-utils';
 
 /**
  * SM-2 Spaced Repetition Algorithm
@@ -174,6 +175,18 @@ export function getWordsForReview(words: Word[], limit = 20): Word[] {
  * Fuzzy match: normalize accents, compare with Levenshtein distance.
  */
 export function fuzzyMatch(input: string, correct: string): 'correct' | 'almost' | 'wrong' {
+  // Support multi-translation: split on semicolon, match against each, return best result
+  const translations = correct.split(';').map(t => t.trim()).filter(Boolean);
+  if (translations.length > 1) {
+    const results = translations.map(t => fuzzyMatchSingle(input, t));
+    if (results.includes('correct')) return 'correct';
+    if (results.includes('almost')) return 'almost';
+    return 'wrong';
+  }
+  return fuzzyMatchSingle(input, correct);
+}
+
+function fuzzyMatchSingle(input: string, correct: string): 'correct' | 'almost' | 'wrong' {
   const normalize = (s: string) => s.trim().toLowerCase().replace(/[\u2018\u2019\u201B\u0060\u00B4\u02BC\u02BB\u2032\uFF07''`ʼ´]/g, "'");
   const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const stripApostrophes = (s: string) => s.replace(/'/g, '');
@@ -302,11 +315,12 @@ export function getReviewIntervalText(rating: ReviewRating, word: Word): string 
  * Generate 3 wrong multiple-choice options from a word pool.
  */
 export function generateMCOptions(correct: Word, allWords: Word[]): string[] {
+  const correctLabel = formatTranslations(correct.translation);
   const others = allWords
     .filter(w => w.id !== correct.id && w.translation !== correct.translation)
     .sort(() => Math.random() - 0.5)
     .slice(0, 3)
-    .map(w => w.translation);
+    .map(w => formatTranslations(w.translation));
 
   const fallbacks = ['onbekend', 'geen vertaling', 'anders'];
   while (others.length < 3) {
@@ -315,7 +329,7 @@ export function generateMCOptions(correct: Word, allWords: Word[]): string[] {
 
   const options = [...others];
   const insertAt = Math.floor(Math.random() * 4);
-  options.splice(insertAt, 0, correct.translation);
+  options.splice(insertAt, 0, correctLabel);
   return options;
 }
 

@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { Word } from '@/types/word';
 import { Check, X, Minus } from 'lucide-react';
 import DiffHighlight from './DiffHighlight';
+import { formatTranslations } from '@/lib/translation-utils';
 
 type AnswerState = { result: 'correct' | 'almost' | 'wrong'; input: string };
 
@@ -56,7 +57,7 @@ export default function FillBlankCard({
           {cloze}
         </p>
         <p className="text-sm text-muted-foreground mt-3">
-          Vertaling: <span className="font-medium text-foreground">{word.translation}</span>
+          Vertaling: <span className="font-medium text-foreground">{formatTranslations(word.translation)}</span>
         </p>
       </div>
 

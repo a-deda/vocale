@@ -5,6 +5,7 @@ import { useStore } from '@/components/StoreProvider';
 import { getWordsForReview, calculateNextReview, markIntroduced, fuzzyMatch, generateMCOptions, pickExerciseType, adjustRatingBySpeed } from '@/lib/srs';
 import type { ReviewRating, ExerciseType } from '@/lib/srs';
 import { Word } from '@/types/word';
+import { formatTranslations } from '@/lib/translation-utils';
 import { Progress } from '@/components/ui/progress';
 import IntroCard from '@/components/study/IntroCard';
 import ProductionCard from '@/components/study/ProductionCard';
@@ -116,7 +117,7 @@ export default function Study() {
         setQueue(prev => [...prev, { ...currentWord, ...updates } as Word]);
       } else {
         // Fallback MC after errors: reset consecutiveErrors on correct
-        const isCorrect = selected === currentWord.translation;
+        const isCorrect = selected === formatTranslations(currentWord.translation);
         const updates: Partial<Word> = { consecutiveErrors: isCorrect ? 0 : (currentWord.consecutiveErrors ?? 0) + 1 };
         await updateWord(currentWord.id, updates);
 

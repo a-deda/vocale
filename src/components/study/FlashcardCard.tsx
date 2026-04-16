@@ -3,6 +3,7 @@ import { Word } from '@/types/word';
 import { Check, X, Minus } from 'lucide-react';
 import type { ReviewRating } from '@/lib/srs';
 import { getReviewIntervalText } from '@/lib/srs';
+import { formatTranslations } from '@/lib/translation-utils';
 
 interface FlashcardCardProps {
   word: Word;
@@ -25,7 +26,7 @@ export default function FlashcardCard({ word, onRate }: FlashcardCardProps) {
         </span>
         <h2 className="text-4xl font-bold text-foreground mt-3">{word.original}</h2>
         {revealed && (
-          <p className="text-lg text-muted-foreground mt-3 animate-slide-up">{word.translation}</p>
+          <p className="text-lg text-muted-foreground mt-3 animate-slide-up">{formatTranslations(word.translation)}</p>
         )}
       </div>
 

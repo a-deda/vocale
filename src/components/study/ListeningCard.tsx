@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useCallback } from 'react';
 import { Word } from '@/types/word';
 import { Volume2, Check, X, Minus } from 'lucide-react';
 import DiffHighlight from './DiffHighlight';
+import { formatTranslations } from '@/lib/translation-utils';
 
 type AnswerState = { result: 'correct' | 'almost' | 'wrong'; input: string };
 
@@ -135,7 +136,7 @@ function ListeningFeedback({ word, answerState }: { word: Word; answerState: Ans
       <div className="glass-card rounded-xl p-4 text-center">
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Het woord was</p>
         <p className="text-2xl font-bold text-foreground">{word.original}</p>
-        <p className="text-sm text-muted-foreground mt-1">{word.translation}</p>
+        <p className="text-sm text-muted-foreground mt-1">{formatTranslations(word.translation)}</p>
       </div>
     </div>
   );
