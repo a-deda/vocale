@@ -88,7 +88,7 @@ export default function WordBank() {
           setPendingWords(prev => prev.map(p => {
             if (p.translating) {
               const translated = translations[p.original.toLowerCase()] || `[vertaling van "${p.original}"]`;
-              return { ...p, translation: translated, translating: false };
+              return { ...p, translation: translated, translating: false, warnings: validateWordPair(p.original, translated) };
             }
             return p;
           }));
