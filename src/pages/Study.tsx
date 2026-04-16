@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, VolumeX, Volume2 } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
 import { getWordsForReview, calculateNextReview, markIntroduced, fuzzyMatch, generateMCOptions, pickExerciseType, adjustRatingBySpeed } from '@/lib/srs';
 import type { ReviewRating, ExerciseType } from '@/lib/srs';
@@ -39,6 +39,28 @@ export default function Study() {
   // Store the exercise type per word to keep it stable during the card lifecycle
   const [exerciseTypeOverride, setExerciseTypeOverride] = useState<ExerciseType | null>(null);
 
+  // Mute listening exercises for 30 minutes
+  const [listeningMutedUntil, setListeningMutedUntil] = useState<number | null>(() => {
+    const stored = sessionStorage.getItem('listeningMutedUntil');
+    if (stored) {
+      const val = parseInt(stored, 10);
+      return val > Date.now() ? val : null;
+    }
+    return null;
+  });
+  const isListeningMuted = listeningMutedUntil !== null && listeningMutedUntil > Date.now();
+
+  const toggleListeningMute = useCallback(() => {
+    if (isListeningMuted) {
+      setListeningMutedUntil(null);
+      sessionStorage.removeItem('listeningMutedUntil');
+    } else {
+      const until = Date.now() + 30 * 60 * 1000;
+      setListeningMutedUntil(until);
+      sessionStorage.setItem('listeningMutedUntil', String(until));
+    }
+  }, [isListeningMuted]);
+
   // Refs to avoid stale closures in setTimeout callbacks
   const currentIndexRef = useRef(currentIndex);
   currentIndexRef.current = currentIndex;
@@ -66,10 +88,15 @@ export default function Study() {
   // Store exercise type and reset timer when word changes
   useEffect(() => {
     if (currentWord) {
-      setExerciseTypeOverride(pickExerciseType(currentWord));
+      let type = pickExerciseType(currentWord);
+      // Skip listening if muted — fall back to production
+      if (type === 'listening' && isListeningMuted) {
+        type = 'production';
+      }
+      setExerciseTypeOverride(type);
       cardStartTimeRef.current = Date.now();
     }
-  }, [currentWord?.id]);
+  }, [currentWord?.id, isListeningMuted]);
 
   const progress = queue.length > 0 ? (currentIndex / queue.length) * 100 : 0;
 
@@ -88,7 +115,11 @@ export default function Study() {
 
     if (idx < q.length - 1) {
       const nextWord = q[idx + 1];
-      setExerciseTypeOverride(nextWord ? pickExerciseType(nextWord) : null);
+      setExerciseTypeOverride(nextWord ? (() => {
+        let t = pickExerciseType(nextWord);
+        if (t === 'listening' && isListeningMuted) t = 'production';
+        return t;
+      })() : null);
       setCurrentIndex(idx + 1);
     } else {
       setExerciseTypeOverride(null);
@@ -242,6 +273,13 @@ export default function Study() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="flex items-center gap-2">
+          <button
+            onClick={toggleListeningMute}
+            title={isListeningMuted ? 'Luisteroefeningen weer aanzetten' : 'Luisteroefeningen 30 min uitschakelen'}
+            className={`p-1.5 rounded-lg transition-colors ${isListeningMuted ? 'bg-destructive/10 text-destructive' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            {isListeningMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+          </button>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-2 py-0.5 rounded-full bg-secondary">
             {EXERCISE_LABELS[exerciseType]}
           </span>
