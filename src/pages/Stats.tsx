@@ -165,6 +165,47 @@ export default function Stats() {
         </div>
       </div>
 
+      {/* Time to Mastery prediction */}
+      {mastery && (
+        <div className="glass-card rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Trophy className="h-4 w-4 text-accent" />
+            <h3 className="text-sm font-semibold text-foreground">Tijd tot Mastery</h3>
+          </div>
+          {mastery.done ? (
+            <div className="text-center py-2">
+              <p className="text-3xl font-bold text-gradient-accent">100%</p>
+              <p className="text-xs text-muted-foreground mt-2">Alle woorden zijn stabiel — bravo! 🎉</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-end justify-between mb-3 gap-3">
+                <div className="min-w-0">
+                  <p className="text-3xl font-bold text-foreground truncate">{mastery.etaLabel}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {mastery.daysLeft !== null
+                      ? `tot alle ${mastery.nonStable} resterende woorden stabiel zijn`
+                      : `studeer enkele dagen voor een voorspelling (${mastery.nonStable} resterend)`}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-2xl font-bold text-accent">{mastery.masteredPct}%</p>
+                  <p className="text-[10px] text-muted-foreground">stabiel</p>
+                </div>
+              </div>
+              <div className="h-2 bg-border rounded-full overflow-hidden mb-2">
+                <div className="h-full gradient-accent transition-all" style={{ width: `${mastery.masteredPct}%` }} />
+              </div>
+              {mastery.perDay > 0 && (
+                <p className="text-[10px] text-muted-foreground">
+                  Tempo: {mastery.perDay.toFixed(1)} woord{mastery.perDay >= 2 ? 'en' : ''}/studiedag (laatste 30 dagen)
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {/* 30-day activity */}
       <div className="glass-card rounded-xl p-5">
         <div className="flex items-baseline justify-between mb-4">
