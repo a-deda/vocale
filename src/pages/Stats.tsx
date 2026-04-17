@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore } from '@/components/StoreProvider';
-import { TrendingUp, Heart, BarChart3, Clock, Flame, Target, AlertCircle, Timer } from 'lucide-react';
+import { TrendingUp, Heart, BarChart3, Clock, Flame, Target, AlertCircle, Timer, Trophy } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { getMasteryScore } from '@/lib/srs';
 import { ActivityHeatmap } from '@/components/stats/ActivityHeatmap';
