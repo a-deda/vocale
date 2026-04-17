@@ -1,30 +1,52 @@
 
+De Stats-pagina toont nu grotendeels placeholder/mock data (de "Leercurve" grafiek is hardcoded `[15, 25, 35, 50, 65, 45, 70]`). Ik ga deze vervangen door echte data uit `words` en `sessions`, en nieuwe inzichten toevoegen die waardevol zijn voor een taalleerder.
 
-## Plan: Meerdere Vertalingen per Woord
+## Plan: Echte Statistieken + Nieuwe Inzichten
 
-### Concept
-Het `translation` veld wordt een semikolon-gescheiden lijst (bijv. `"langzaam; zachtjes"`). Bij het toevoegen van een duplicaat wordt de nieuwe vertaling samengevoegd met de bestaande.
+### 1. Vervangen: Leercurve met echte data
+De huidige hardcoded maand-grafiek wordt een **echte 30-dagen activiteitsgrafiek** op basis van `sessions`:
+- X-as: laatste 30 dagen
+- Y-as: aantal woorden gestudeerd per dag
+- Vandaag gehighlight in accent-kleur
 
-### Wijzigingen
+### 2. Nieuwe inzichten (4 nieuwe kaarten)
 
-**1. `src/pages/WordBank.tsx` — Duplicaatdetectie → samenvoegen**
-- Als een woord al bestaat en de nieuwe vertaling verschilt: voeg de vertaling toe aan het bestaande woord via `updateWord(id, { translation: "bestaand; nieuw" })`.
-- Toon een toast: "Vertaling toegevoegd aan [woord]".
-- Als de vertaling identiek is: skip zoals nu.
+**a. Beheersingsverdeling** (donut/staafjes)
+Verdeling van woorden over status: nieuw / aan het leren / herhaling / stabiel. Geeft direct beeld van waar je staat.
 
-**2. `src/lib/srs.ts` — `fuzzyMatch` multi-vertaling**
-- Split `correct` op `";"` en match de input tegen elke vertaling apart.
-- Beste resultaat wint (correct > almost > wrong).
+**b. Nauwkeurigheid laatste 7 dagen**
+Percentage correcte antwoorden uit recente sessies (`correct / (correct + incorrect)`). Toont of je écht beter wordt, niet alleen meer doet.
 
-**3. `src/lib/srs.ts` — `generateMCOptions`**
-- Bij MC-opties: toon de eerste vertaling als label (of alle, gescheiden door " / ").
+**c. Lastigste woorden** (top 5)
+Woorden met hoogste `consecutiveErrors` of laagste mastery score. Direct inzicht in waar focus nodig is, met klikbare link naar woordenbank.
 
-**4. `src/components/study/ProductionCard.tsx` + andere kaarten**
-- Bij het tonen van de vertaling (hint/feedback): toon alle vertalingen gescheiden door " / ".
+**d. Studietijd totaal & gemiddeld**
+- Totale studietijd (som van `session.duration`)
+- Gemiddelde sessieduur
+- Gemiddeld aantal woorden per sessie
 
-**5. `src/pages/WordBank.tsx` — Weergave**
-- Woordkaarten tonen alle vertalingen netjes onder elkaar of met " / " gescheiden.
+### 3. Verbeteren: bestaande "Recente Activiteit"
+Toevoegen: nauwkeurigheid per sessie (% correct) inline.
 
-### Geen DB-wijziging nodig
-Het `translation` veld is al een `text` kolom — semikolon-gescheiden waarden passen erin zonder schemawijziging.
+### 4. Verbeteren: Categorieën
+Reeds echt — laten staan, eventueel sorteren op aantal (al gedaan via `slice(0,5)` maar zonder sort). Voeg sortering toe.
 
+### Technische details
+- Eén bestand: `src/pages/Stats.tsx`
+- Alle berekeningen via `useMemo` op `words` en `sessions`
+- Geen DB-wijzigingen nodig — alle benodigde velden bestaan al (`sessions.correct/incorrect/duration/wordsStudied/date`, `words.consecutiveErrors/status/category`)
+- Importeer `getMasteryScore` uit `@/lib/srs` voor lastigste woorden
+- Gebruik bestaande `glass-card` styling en kleurtokens (geen nieuwe design tokens)
+
+### Layout
+```text
+[Top stats grid 2x2 — bestaand, behouden]
+[30-dagen activiteit — vervangen]
+[Beheersingsverdeling | Nauwkeurigheid 7d]  ← nieuw, naast elkaar md+
+[Lastigste woorden — nieuw]
+[Studietijd kaart — nieuw]
+[Categorieën — bestaand, met sortering]
+[Recente activiteit — bestaand, met % correct]
+```
+
+Empty state blijft behouden voor wanneer er nog geen woorden/sessies zijn.
