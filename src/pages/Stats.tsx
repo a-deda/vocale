@@ -168,6 +168,9 @@ export default function Stats() {
         </div>
       </div>
 
+      {/* Year heatmap + streaks */}
+      <ActivityHeatmap sessions={sessions} />
+
       {/* Mastery Distribution + Accuracy 7d */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="glass-card rounded-xl p-5">
