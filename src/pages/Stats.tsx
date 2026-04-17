@@ -77,6 +77,40 @@ export default function Stats() {
     return { totalSec, avgSec, avgWords };
   }, [sessions]);
 
+  // Time-to-mastery prediction: based on stable-words-per-day rate over last 30 days
+  const mastery = useMemo(() => {
+    const nonStable = words.filter(w => w.status !== 'stable').length;
+    if (words.length === 0) return null;
+    const masteredPct = Math.round((stableWords / words.length) * 100);
+    if (nonStable === 0) {
+      return { done: true, masteredPct, nonStable: 0, perDay: 0, daysLeft: 0, etaLabel: '' };
+    }
+    // Estimate rate: words that became stable recently. Proxy: lastReview within 30d & status stable.
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const recentlyStable = words.filter(
+      w => w.status === 'stable' && w.lastReview && new Date(w.lastReview).getTime() >= cutoff
+    ).length;
+    // Active study days in last 30d (sessions with words studied)
+    const activeDays = new Set(
+      sessions
+        .filter(s => new Date(s.date).getTime() >= cutoff && s.wordsStudied > 0)
+        .map(s => new Date(s.date).toISOString().slice(0, 10))
+    ).size;
+    const denom = Math.max(activeDays, 1);
+    const perDay = recentlyStable / denom; // stable words per active study day
+    if (perDay <= 0) {
+      return { done: false, masteredPct, nonStable, perDay: 0, daysLeft: null as number | null, etaLabel: 'meer data nodig' };
+    }
+    const daysLeft = Math.ceil(nonStable / perDay);
+    let etaLabel: string;
+    if (daysLeft <= 1) etaLabel = '1 studiedag';
+    else if (daysLeft < 14) etaLabel = `${daysLeft} studiedagen`;
+    else if (daysLeft < 60) etaLabel = `~${Math.round(daysLeft / 7)} weken`;
+    else if (daysLeft < 365) etaLabel = `~${Math.round(daysLeft / 30)} maanden`;
+    else etaLabel = `~${(daysLeft / 365).toFixed(1)} jaar`;
+    return { done: false, masteredPct, nonStable, perDay, daysLeft, etaLabel };
+  }, [words, sessions, stableWords]);
+
   const formatDuration = (sec: number) => {
     if (sec < 60) return `${sec}s`;
     const m = Math.floor(sec / 60);
