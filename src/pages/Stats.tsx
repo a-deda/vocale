@@ -246,6 +246,23 @@ export default function Stats() {
       {/* Year heatmap + streaks */}
       <ActivityHeatmap sessions={sessions} />
 
+      {/* Streak Freezes uitleg */}
+      <div className="glass-card rounded-xl p-5">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            ❄️ Streak Freezes
+          </h3>
+          <span className="text-sm font-bold text-primary">{stats.streakFreezes} / 3</span>
+        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Verdien automatisch <span className="text-foreground font-medium">1 freeze per 10 dagen</span> streak (max 3).
+          Als je een dag mist, wordt er automatisch één gebruikt zodat je streak doorloopt.
+          {stats.currentStreak > 0 && stats.streakFreezes < 3 && (
+            <> Nog <span className="text-foreground font-medium">{10 - (stats.currentStreak % 10)}</span> dagen tot je volgende freeze.</>
+          )}
+        </p>
+      </div>
+
       {/* Mastery Distribution + Accuracy 7d */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="glass-card rounded-xl p-5">

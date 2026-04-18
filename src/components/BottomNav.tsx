@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { BookOpen, Plus, BarChart3, User, Flame } from 'lucide-react';
+import { BookOpen, Plus, BarChart3, User, Flame, Snowflake } from 'lucide-react';
 import { useStore } from './StoreProvider';
 
 const navItems = [
@@ -49,9 +49,17 @@ export function TopBar() {
       <div className="flex items-center gap-2">
         <span className="text-lg font-bold italic text-gradient-primary">Lexis</span>
       </div>
-      <div className="flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5">
-        <Flame className="h-4 w-4 text-streak" />
-        <span className="text-sm font-bold text-foreground">{stats.currentStreak}</span>
+      <div className="flex items-center gap-2">
+        {stats.streakFreezes > 0 && (
+          <div className="flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1.5" title={`${stats.streakFreezes} streak freeze${stats.streakFreezes === 1 ? '' : 's'}`}>
+            <Snowflake className="h-4 w-4 text-primary" />
+            <span className="text-sm font-bold text-foreground">{stats.streakFreezes}</span>
+          </div>
+        )}
+        <div className="flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5">
+          <Flame className="h-4 w-4 text-streak" />
+          <span className="text-sm font-bold text-foreground">{stats.currentStreak}</span>
+        </div>
       </div>
     </header>
   );

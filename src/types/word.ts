@@ -36,6 +36,8 @@ export interface UserStats {
   totalWordsLearned: number;
   totalSessions: number;
   dailyGoal: number;
+  streakFreezes: number;
+  freezesEarnedAtStreak: number;
 }
 
 export type Difficulty = 'easy' | 'good' | 'hard' | 'again';
