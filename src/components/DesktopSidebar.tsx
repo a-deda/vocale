@@ -58,9 +58,17 @@ export default function DesktopSidebar() {
             <p className="text-sm font-medium text-foreground truncate">Alex</p>
             <p className="text-[10px] text-muted-foreground">Lexis Lid</p>
           </div>
-          <div className="flex items-center gap-1">
-            <Flame className="h-4 w-4 text-streak" />
-            <span className="text-sm font-bold text-foreground">{stats.currentStreak}</span>
+          <div className="flex items-center gap-2">
+            {stats.streakFreezes > 0 && (
+              <div className="flex items-center gap-0.5" title={`${stats.streakFreezes} streak freeze${stats.streakFreezes === 1 ? '' : 's'}`}>
+                <Snowflake className="h-4 w-4 text-primary" />
+                <span className="text-sm font-bold text-foreground">{stats.streakFreezes}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-1">
+              <Flame className="h-4 w-4 text-streak" />
+              <span className="text-sm font-bold text-foreground">{stats.currentStreak}</span>
+            </div>
           </div>
         </div>
       </div>
