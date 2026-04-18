@@ -73,7 +73,13 @@ export default function Dashboard() {
       {/* Stats Row */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {/* Streak */}
-        <div className="glass-card rounded-xl p-4 text-center">
+        <div className="glass-card rounded-xl p-4 text-center relative">
+          {stats.streakFreezes > 0 && (
+            <div className="absolute top-2 right-2 flex items-center gap-0.5 rounded-full bg-primary/15 px-1.5 py-0.5" title={`${stats.streakFreezes} streak freeze${stats.streakFreezes === 1 ? '' : 's'}`}>
+              <span className="text-[10px]">❄️</span>
+              <span className="text-[10px] font-bold text-primary">{stats.streakFreezes}</span>
+            </div>
+          )}
           <Flame className="h-8 w-8 mx-auto text-streak" />
           <p className="text-3xl font-bold text-foreground mt-2">{stats.currentStreak}</p>
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Dag Streak</p>
