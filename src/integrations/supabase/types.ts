@@ -52,9 +52,11 @@ export type Database = {
           created_at: string
           current_streak: number
           daily_goal: number
+          freezes_earned_at_streak: number
           id: string
           last_study_date: string | null
           longest_streak: number
+          streak_freezes: number
           total_sessions: number
           total_words_learned: number
           updated_at: string
@@ -64,9 +66,11 @@ export type Database = {
           created_at?: string
           current_streak?: number
           daily_goal?: number
+          freezes_earned_at_streak?: number
           id?: string
           last_study_date?: string | null
           longest_streak?: number
+          streak_freezes?: number
           total_sessions?: number
           total_words_learned?: number
           updated_at?: string
@@ -76,9 +80,11 @@ export type Database = {
           created_at?: string
           current_streak?: number
           daily_goal?: number
+          freezes_earned_at_streak?: number
           id?: string
           last_study_date?: string | null
           longest_streak?: number
+          streak_freezes?: number
           total_sessions?: number
           total_words_learned?: number
           updated_at?: string
