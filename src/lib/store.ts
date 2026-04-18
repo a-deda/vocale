@@ -10,7 +10,12 @@ const DEFAULT_STATS: UserStats = {
   totalWordsLearned: 0,
   totalSessions: 0,
   dailyGoal: 20,
+  streakFreezes: 0,
+  freezesEarnedAtStreak: 0,
 };
+
+const MAX_FREEZES = 3;
+const FREEZE_INTERVAL = 10;
 
 // Map DB row to Word type
 function dbToWord(row: any): Word {
@@ -43,6 +48,8 @@ function dbToStats(row: any): UserStats {
     totalWordsLearned: row.total_words_learned,
     totalSessions: row.total_sessions,
     dailyGoal: row.daily_goal,
+    streakFreezes: row.streak_freezes ?? 0,
+    freezesEarnedAtStreak: row.freezes_earned_at_streak ?? 0,
   };
 }
 
@@ -178,6 +185,8 @@ export function useWordStore() {
     if (updates.totalWordsLearned !== undefined) dbUpdates.total_words_learned = updates.totalWordsLearned;
     if (updates.totalSessions !== undefined) dbUpdates.total_sessions = updates.totalSessions;
     if (updates.dailyGoal !== undefined) dbUpdates.daily_goal = updates.dailyGoal;
+    if (updates.streakFreezes !== undefined) dbUpdates.streak_freezes = updates.streakFreezes;
+    if (updates.freezesEarnedAtStreak !== undefined) dbUpdates.freezes_earned_at_streak = updates.freezesEarnedAtStreak;
 
     const { error } = await supabase.from('user_stats').update(dbUpdates).eq('user_id', userId);
     if (error) {
@@ -190,17 +199,61 @@ export function useWordStore() {
   const updateStreak = useCallback(async () => {
     const today = new Date().toISOString().split('T')[0];
     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString().split('T')[0];
 
     const newStats = { ...stats };
     if (newStats.lastStudyDate === today) return;
-    const newStreak = newStats.lastStudyDate === yesterday ? newStats.currentStreak + 1 : 1;
+
+    let newStreak: number;
+    let freezeUsed = false;
+    let newFreezes = newStats.streakFreezes;
+
+    if (newStats.lastStudyDate === yesterday) {
+      // Normaal: gisteren gestudeerd
+      newStreak = newStats.currentStreak + 1;
+    } else if (newStats.lastStudyDate === twoDaysAgo && newStats.streakFreezes > 0) {
+      // Eén dag gemist, freeze gebruiken
+      newStreak = newStats.currentStreak + 1;
+      newFreezes = newStats.streakFreezes - 1;
+      freezeUsed = true;
+    } else {
+      // Streak gebroken
+      newStreak = 1;
+    }
+
+    // Freezes verdienen bij elke FREEZE_INTERVAL mijlpaal
+    let newEarnedAt = newStats.freezesEarnedAtStreak;
+    let freezeEarned = false;
+    const milestone = Math.floor(newStreak / FREEZE_INTERVAL) * FREEZE_INTERVAL;
+    if (milestone > 0 && milestone > newStats.freezesEarnedAtStreak && newFreezes < MAX_FREEZES) {
+      newFreezes = Math.min(newFreezes + 1, MAX_FREEZES);
+      newEarnedAt = milestone;
+      freezeEarned = true;
+    } else if (milestone > newStats.freezesEarnedAtStreak) {
+      // Mijlpaal bereikt maar al max freezes — onthoud wel zodat we niet later opnieuw uitdelen
+      newEarnedAt = milestone;
+    }
+    // Reset earned-marker als streak terug naar 1 ging
+    if (newStreak < newStats.freezesEarnedAtStreak) {
+      newEarnedAt = 0;
+    }
+
     const updates = {
       currentStreak: newStreak,
       longestStreak: Math.max(newStats.longestStreak, newStreak),
       lastStudyDate: today,
+      streakFreezes: newFreezes,
+      freezesEarnedAtStreak: newEarnedAt,
     };
     await updateStats(updates);
-  }, [stats, updateStats]);
+
+    if (freezeUsed) {
+      toast({ title: '❄️ Streak freeze gebruikt!', description: `Je streak loopt door. Je hebt nog ${newFreezes} freeze${newFreezes === 1 ? '' : 's'} over.` });
+    }
+    if (freezeEarned) {
+      toast({ title: '❄️ Freeze verdiend!', description: `${newStreak} dagen streak — je hebt nu ${newFreezes} freeze${newFreezes === 1 ? '' : 's'}.` });
+    }
+  }, [stats, updateStats, toast]);
 
   const addSession = useCallback(async (session: Omit<StudySession, 'id'>) => {
     if (!userId) return;
