@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { BookOpen, Plus, BarChart3, User, Flame, Home, BookMarked } from 'lucide-react';
+import { BookOpen, Plus, BarChart3, User, Flame, Home, BookMarked, Snowflake } from 'lucide-react';
 import { useStore } from './StoreProvider';
 
 const sidebarItems = [
