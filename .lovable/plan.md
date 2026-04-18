@@ -1,52 +1,58 @@
 
-De Stats-pagina toont nu grotendeels placeholder/mock data (de "Leercurve" grafiek is hardcoded `[15, 25, 35, 50, 65, 45, 70]`). Ik ga deze vervangen door echte data uit `words` en `sessions`, en nieuwe inzichten toevoegen die waardevol zijn voor een taalleerder.
+## Plan: Streak Freeze Systeem
 
-## Plan: Echte Statistieken + Nieuwe Inzichten
+### Concept
+Gebruikers verdienen "streak freezes" door consistent te studeren. Een freeze wordt automatisch ingezet als ze een dag missen, zodat de streak doorloopt.
 
-### 1. Vervangen: Leercurve met echte data
-De huidige hardcoded maand-grafiek wordt een **echte 30-dagen activiteitsgrafiek** op basis van `sessions`:
-- X-as: laatste 30 dagen
-- Y-as: aantal woorden gestudeerd per dag
-- Vandaag gehighlight in accent-kleur
+### Voorgesteld systeem (Duolingo-geïnspireerd, maar aangepast)
 
-### 2. Nieuwe inzichten (4 nieuwe kaarten)
+**Verdienen:**
+- Elke 10 dagen aaneengesloten streak → +1 freeze verdiend
+- Maximum van 3 freezes tegelijk (voorkomt eindeloos hamsteren)
 
-**a. Beheersingsverdeling** (donut/staafjes)
-Verdeling van woorden over status: nieuw / aan het leren / herhaling / stabiel. Geeft direct beeld van waar je staat.
+**Inzet:**
+- Automatisch bij detectie van een gemiste dag (wanneer gebruiker terugkomt en `lastStudyDate` = 2 dagen geleden)
+- Streak blijft intact, freeze count -1
+- Notificatie/toast: "Streak freeze gebruikt! Je hebt nog X over."
 
-**b. Nauwkeurigheid laatste 7 dagen**
-Percentage correcte antwoorden uit recente sessies (`correct / (correct + incorrect)`). Toont of je écht beter wordt, niet alleen meer doet.
+**Zichtbaarheid:**
+- Badge naast streak op Dashboard, TopBar en DesktopSidebar (bijv. ❄️ × 2)
+- Op Stats-pagina: uitleg + history van gebruikte freezes (optioneel)
 
-**c. Lastigste woorden** (top 5)
-Woorden met hoogste `consecutiveErrors` of laagste mastery score. Direct inzicht in waar focus nodig is, met klikbare link naar woordenbank.
+### Alternatieven overwogen
+1. **Vaste hoeveelheid per maand** — minder motiverend, beloont consistentie niet
+2. **Aankoop met "punten"** — vereist puntensysteem, te complex voor nu
+3. **Weekend-pas** — minder flexibel dan freezes
 
-**d. Studietijd totaal & gemiddeld**
-- Totale studietijd (som van `session.duration`)
-- Gemiddelde sessieduur
-- Gemiddeld aantal woorden per sessie
+→ **Gekozen**: 1 freeze per 10 dagen, max 3. Simpel, eerlijk, motiveert lange streaks.
 
-### 3. Verbeteren: bestaande "Recente Activiteit"
-Toevoegen: nauwkeurigheid per sessie (% correct) inline.
+### Wijzigingen
 
-### 4. Verbeteren: Categorieën
-Reeds echt — laten staan, eventueel sorteren op aantal (al gedaan via `slice(0,5)` maar zonder sort). Voeg sortering toe.
+**1. Database (`supabase/migrations/`)**
+Nieuwe kolommen op `user_stats`:
+- `streak_freezes` (int, default 0) — huidig aantal beschikbare freezes
+- `freezes_earned_at_streak` (int, default 0) — laatste streak-mijlpaal waarop freeze verdiend is (voorkomt dubbele uitgifte)
 
-### Technische details
-- Eén bestand: `src/pages/Stats.tsx`
-- Alle berekeningen via `useMemo` op `words` en `sessions`
-- Geen DB-wijzigingen nodig — alle benodigde velden bestaan al (`sessions.correct/incorrect/duration/wordsStudied/date`, `words.consecutiveErrors/status/category`)
-- Importeer `getMasteryScore` uit `@/lib/srs` voor lastigste woorden
-- Gebruik bestaande `glass-card` styling en kleurtokens (geen nieuwe design tokens)
+**2. `src/types/word.ts`**
+`UserStats` uitbreiden met `streakFreezes` en `freezesEarnedAtStreak`.
 
-### Layout
-```text
-[Top stats grid 2x2 — bestaand, behouden]
-[30-dagen activiteit — vervangen]
-[Beheersingsverdeling | Nauwkeurigheid 7d]  ← nieuw, naast elkaar md+
-[Lastigste woorden — nieuw]
-[Studietijd kaart — nieuw]
-[Categorieën — bestaand, met sortering]
-[Recente activiteit — bestaand, met % correct]
-```
+**3. `src/lib/store.ts`**
+- `dbToStats` mapping uitbreiden
+- `updateStats` field-mapping uitbreiden
+- `updateStreak` logica aanpassen:
+  - Bij 2 dagen gat én freezes > 0 → freeze inzetten, streak doorzetten, toast tonen
+  - Bij elke nieuwe streak-mijlpaal van 10 (en hoger dan `freezesEarnedAtStreak`) → freeze toevoegen (max 3), toast tonen
 
-Empty state blijft behouden voor wanneer er nog geen woorden/sessies zijn.
+**4. UI updates**
+- `src/components/BottomNav.tsx` (TopBar) → freeze badge naast streak
+- `src/components/DesktopSidebar.tsx` → freeze badge
+- `src/pages/Dashboard.tsx` → freeze count zichtbaar bij streak-kaart, korte uitleg
+- `src/pages/Stats.tsx` → uitleg-blokje "❄️ Streak Freezes: verdien er 1 per 10 dagen, max 3"
+
+### Edge cases
+- Gat van 2+ dagen met 1 freeze: 1 freeze gebruikt, streak +1 (alsof gisteren gestudeerd)
+- Gat van 3+ dagen met meerdere freezes: voor nu → slechts 1 freeze inzetten, streak resetten als gat > 2 dagen. (Eenvoudig houden; multi-day freeze kan later)
+- Geen freezes + gat: streak reset zoals nu
+
+### Geen vragen nodig
+Voorstel is concreet; gebruiker zei "open voor suggesties" en ik kies de eerlijkste/eenvoudigste variant.
