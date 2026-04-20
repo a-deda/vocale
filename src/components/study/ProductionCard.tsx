@@ -84,13 +84,15 @@ export default function ProductionCard({
           </button>
         </div>
       ) : (
-        <ProductionFeedback word={word} answerState={answerState} />
+        <ProductionFeedback word={word} answerState={answerState} alternatives={alternatives} />
       )}
     </div>
   );
 }
 
-function ProductionFeedback({ word, answerState }: { word: Word; answerState: AnswerState }) {
+function ProductionFeedback({
+  word, answerState, alternatives = [],
+}: { word: Word; answerState: AnswerState; alternatives?: string[] }) {
   const { result, input } = answerState;
 
   const feedbackConfig = {
