@@ -201,7 +201,7 @@ export default function Study() {
 
       moveToNext();
     }, 1500);
-  }, [currentWord, typedAnswer, updateWord, updateStreak, moveToNext]);
+  }, [currentWord, typedAnswer, exerciseType, synonymOriginals, updateWord, updateStreak, moveToNext]);
 
   // Skip handler
   const handleSkip = useCallback(() => {
