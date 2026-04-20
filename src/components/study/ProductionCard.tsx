@@ -123,6 +123,24 @@ function ProductionFeedback({
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Correcte spelling</p>
         <p className="text-2xl font-bold text-foreground">{word.original}</p>
       </div>
+
+      {alternatives.length > 0 && (
+        <div className="glass-card rounded-xl p-4">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 text-center">
+            {alternatives.length === 1 ? 'Ook goed' : 'Ook goed'}
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            {alternatives.map(alt => (
+              <span
+                key={alt}
+                className="px-2.5 py-1 rounded-md bg-secondary text-sm text-foreground font-medium"
+              >
+                {alt}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
