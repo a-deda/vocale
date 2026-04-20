@@ -2,10 +2,11 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, VolumeX, Volume2 } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
-import { getWordsForReview, calculateNextReview, markIntroduced, fuzzyMatch, generateMCOptions, pickExerciseType, adjustRatingBySpeed } from '@/lib/srs';
+import { getWordsForReview, calculateNextReview, markIntroduced, fuzzyMatch, fuzzyMatchWithAlternatives, generateMCOptions, pickExerciseType, adjustRatingBySpeed } from '@/lib/srs';
 import type { ReviewRating, ExerciseType } from '@/lib/srs';
 import { Word } from '@/types/word';
 import { formatTranslations } from '@/lib/translation-utils';
+import { findSynonymOriginals } from '@/lib/synonyms';
 import { Progress } from '@/components/ui/progress';
 import IntroCard from '@/components/study/IntroCard';
 import ProductionCard from '@/components/study/ProductionCard';
@@ -110,6 +111,14 @@ export default function Study() {
     return generateMCOptions(currentWord, words);
   }, [currentWord?.id, exerciseType, words]);
 
+  // Italian synonyms (other words sharing a Dutch translation) — only used
+  // for production (NL → IT). Listening/fillblank target a specific spoken/
+  // written word, so synonyms aren't acceptable there.
+  const synonymOriginals = useMemo(() => {
+    if (!currentWord) return [];
+    return findSynonymOriginals(currentWord, words);
+  }, [currentWord?.id, words]);
+
   const moveToNext = useCallback(() => {
     setAnswerState(null);
     setTypedAnswer('');
@@ -164,7 +173,9 @@ export default function Study() {
   // Typed answer handler (production, listening, fillblank)
   const handleSubmitAnswer = useCallback(() => {
     if (!currentWord || !typedAnswer.trim()) return;
-    const result = fuzzyMatch(typedAnswer, currentWord.original);
+    const result = exerciseType === 'production'
+      ? fuzzyMatchWithAlternatives(typedAnswer, currentWord.original, synonymOriginals)
+      : fuzzyMatch(typedAnswer, currentWord.original);
     setAnswerState({ result, input: typedAnswer });
 
     const responseTimeMs = Date.now() - cardStartTimeRef.current;
@@ -190,7 +201,7 @@ export default function Study() {
 
       moveToNext();
     }, 1500);
-  }, [currentWord, typedAnswer, updateWord, updateStreak, moveToNext]);
+  }, [currentWord, typedAnswer, exerciseType, synonymOriginals, updateWord, updateStreak, moveToNext]);
 
   // Skip handler
   const handleSkip = useCallback(() => {
@@ -303,6 +314,7 @@ export default function Study() {
           answerState={answerState}
           onSubmit={handleSubmitAnswer}
           onSkip={handleSkip}
+          alternatives={synonymOriginals}
         />
       ) : exerciseType === 'listening' ? (
         <ListeningCard

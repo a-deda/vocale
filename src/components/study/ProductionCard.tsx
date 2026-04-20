@@ -13,10 +13,12 @@ interface ProductionCardProps {
   answerState: AnswerState | null;
   onSubmit: () => void;
   onSkip?: () => void;
+  /** Other Italian words that share a Dutch translation with this one. */
+  alternatives?: string[];
 }
 
 export default function ProductionCard({
-  word, typedAnswer, onTypeAnswer, answerState, onSubmit, onSkip,
+  word, typedAnswer, onTypeAnswer, answerState, onSubmit, onSkip, alternatives = [],
 }: ProductionCardProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -82,13 +84,15 @@ export default function ProductionCard({
           </button>
         </div>
       ) : (
-        <ProductionFeedback word={word} answerState={answerState} />
+        <ProductionFeedback word={word} answerState={answerState} alternatives={alternatives} />
       )}
     </div>
   );
 }
 
-function ProductionFeedback({ word, answerState }: { word: Word; answerState: AnswerState }) {
+function ProductionFeedback({
+  word, answerState, alternatives = [],
+}: { word: Word; answerState: AnswerState; alternatives?: string[] }) {
   const { result, input } = answerState;
 
   const feedbackConfig = {
@@ -119,6 +123,24 @@ function ProductionFeedback({ word, answerState }: { word: Word; answerState: An
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Correcte spelling</p>
         <p className="text-2xl font-bold text-foreground">{word.original}</p>
       </div>
+
+      {alternatives.length > 0 && (
+        <div className="glass-card rounded-xl p-4">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 text-center">
+            {alternatives.length === 1 ? 'Ook goed' : 'Ook goed'}
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            {alternatives.map(alt => (
+              <span
+                key={alt}
+                className="px-2.5 py-1 rounded-md bg-secondary text-sm text-foreground font-medium"
+              >
+                {alt}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

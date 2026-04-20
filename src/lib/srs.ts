@@ -211,13 +211,44 @@ function fuzzyMatchSingle(input: string, correct: string): 'correct' | 'almost' 
     if (a === v || stripAccents(a) === stripAccents(v) || flexibleA === normalizeFlexible(v)) return 'correct';
   }
 
-  if (levenshtein(flexibleA, flexibleB) <= 1) return 'almost';
+  // Length-scaled tolerance: longer words allow more typos, but never enough
+  // that two genuinely different words match.
+  // ≤4 chars → 1, 5–7 → 2, 8+ → 3 (capped at ~25% of length)
+  const refLen = Math.max(flexibleA.length, flexibleB.length);
+  const maxDistance = refLen <= 4 ? 1 : refLen <= 7 ? 2 : Math.min(3, Math.floor(refLen / 4));
 
-  for (const v of variants) {
-    if (levenshtein(flexibleA, normalizeFlexible(v)) <= 1) return 'almost';
+  // Only treat as "almost" when the lengths are close — prevents totally different
+  // short words from matching just because they share a few letters.
+  const lengthDiff = Math.abs(flexibleA.length - flexibleB.length);
+  if (lengthDiff <= maxDistance) {
+    if (levenshtein(flexibleA, flexibleB) <= maxDistance) return 'almost';
+    for (const v of variants) {
+      const fv = normalizeFlexible(v);
+      if (Math.abs(flexibleA.length - fv.length) <= maxDistance && levenshtein(flexibleA, fv) <= maxDistance) return 'almost';
+    }
   }
 
   return 'wrong';
+}
+
+/**
+ * Match an input against a primary correct answer plus a list of acceptable
+ * alternatives (e.g. Italian synonyms that share the same Dutch translation).
+ * Returns the best result across all candidates.
+ */
+export function fuzzyMatchWithAlternatives(
+  input: string,
+  primary: string,
+  alternatives: string[] = []
+): 'correct' | 'almost' | 'wrong' {
+  const candidates = [primary, ...alternatives];
+  let best: 'correct' | 'almost' | 'wrong' = 'wrong';
+  for (const c of candidates) {
+    const r = fuzzyMatch(input, c);
+    if (r === 'correct') return 'correct';
+    if (r === 'almost') best = 'almost';
+  }
+  return best;
 }
 
 /**
