@@ -13,10 +13,12 @@ interface ProductionCardProps {
   answerState: AnswerState | null;
   onSubmit: () => void;
   onSkip?: () => void;
+  /** Other Italian words that share a Dutch translation with this one. */
+  alternatives?: string[];
 }
 
 export default function ProductionCard({
-  word, typedAnswer, onTypeAnswer, answerState, onSubmit, onSkip,
+  word, typedAnswer, onTypeAnswer, answerState, onSubmit, onSkip, alternatives = [],
 }: ProductionCardProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
