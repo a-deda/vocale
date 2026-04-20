@@ -111,6 +111,14 @@ export default function Study() {
     return generateMCOptions(currentWord, words);
   }, [currentWord?.id, exerciseType, words]);
 
+  // Italian synonyms (other words sharing a Dutch translation) — only used
+  // for production (NL → IT). Listening/fillblank target a specific spoken/
+  // written word, so synonyms aren't acceptable there.
+  const synonymOriginals = useMemo(() => {
+    if (!currentWord) return [];
+    return findSynonymOriginals(currentWord, words);
+  }, [currentWord?.id, words]);
+
   const moveToNext = useCallback(() => {
     setAnswerState(null);
     setTypedAnswer('');
