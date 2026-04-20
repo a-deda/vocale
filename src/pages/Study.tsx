@@ -173,7 +173,9 @@ export default function Study() {
   // Typed answer handler (production, listening, fillblank)
   const handleSubmitAnswer = useCallback(() => {
     if (!currentWord || !typedAnswer.trim()) return;
-    const result = fuzzyMatch(typedAnswer, currentWord.original);
+    const result = exerciseType === 'production'
+      ? fuzzyMatchWithAlternatives(typedAnswer, currentWord.original, synonymOriginals)
+      : fuzzyMatch(typedAnswer, currentWord.original);
     setAnswerState({ result, input: typedAnswer });
 
     const responseTimeMs = Date.now() - cardStartTimeRef.current;
