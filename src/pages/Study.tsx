@@ -314,6 +314,7 @@ export default function Study() {
           answerState={answerState}
           onSubmit={handleSubmitAnswer}
           onSkip={handleSkip}
+          alternatives={synonymOriginals}
         />
       ) : exerciseType === 'listening' ? (
         <ListeningCard
