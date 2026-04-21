@@ -71,7 +71,8 @@ export default function Dashboard() {
       {/* Greeting */}
       <div>
         <h1 className="text-2xl md:text-3xl font-bold text-foreground">
-          Goedemorgen, <span className="text-gradient-primary">Alex.</span>
+          {greeting}{firstName ? ', ' : ''}
+          {firstName && <span className="text-gradient-primary">{firstName}.</span>}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Klaar om je volgende {stats.dailyGoal} woorden te leren?
@@ -84,16 +85,16 @@ export default function Dashboard() {
         className="w-full gradient-primary rounded-2xl p-6 text-left transition-all hover:opacity-95 active:scale-[0.98] shadow-lg shadow-primary/20"
       >
         <p className="text-[10px] uppercase tracking-widest text-primary-foreground/70 font-medium">
-          Algoritmisch Geoptimaliseerd
+          algoritmisch geoptimaliseerd
         </p>
         <h2 className="text-xl md:text-2xl font-bold text-primary-foreground mt-2">
-          Start Ochtend Herhalingssessie
+          Start je {session}
         </h2>
         <p className="text-sm text-primary-foreground/80 mt-2">
           {dueWords.length} woorden staan klaar voor herhaling. Focus op je zwakke punten.
         </p>
         <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-background/20 px-4 py-2 text-sm font-semibold text-primary-foreground backdrop-blur-sm">
-          Verder Leren <ChevronRight className="h-4 w-4" />
+          Verder leren <ChevronRight className="h-4 w-4" />
         </div>
       </button>
 
