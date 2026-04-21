@@ -85,7 +85,7 @@ export default function Stats() {
     }
     const masteredPct = Math.round((stableWords / words.length) * 100);
     if (nonStable === 0) {
-      return { done: true, masteredPct, nonStable: 0, perDay: 0, daysLeft: 0, etaLabel: '' };
+      return { empty: false as const, done: true, masteredPct, nonStable: 0, perDay: 0, daysLeft: 0, etaLabel: '', activeDays: 0, recentlyStable: 0 };
     }
     // Estimate rate: words that became stable recently. Proxy: lastReview within 30d & status stable.
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -99,9 +99,9 @@ export default function Stats() {
         .map(s => new Date(s.date).toISOString().slice(0, 10))
     ).size;
     const denom = Math.max(activeDays, 1);
-    const perDay = recentlyStable / denom; // stable words per active study day
+    const perDay = recentlyStable / denom;
     if (perDay <= 0) {
-      return { done: false, masteredPct, nonStable, perDay: 0, daysLeft: null as number | null, etaLabel: 'meer data nodig' };
+      return { empty: false as const, done: false, masteredPct, nonStable, perDay: 0, daysLeft: null as number | null, etaLabel: 'meer data nodig', activeDays, recentlyStable };
     }
     const daysLeft = Math.ceil(nonStable / perDay);
     let etaLabel: string;
@@ -110,7 +110,7 @@ export default function Stats() {
     else if (daysLeft < 60) etaLabel = `~${Math.round(daysLeft / 7)} weken`;
     else if (daysLeft < 365) etaLabel = `~${Math.round(daysLeft / 30)} maanden`;
     else etaLabel = `~${(daysLeft / 365).toFixed(1)} jaar`;
-    return { done: false, masteredPct, nonStable, perDay, daysLeft, etaLabel };
+    return { empty: false as const, done: false, masteredPct, nonStable, perDay, daysLeft, etaLabel, activeDays, recentlyStable };
   }, [words, sessions, stableWords]);
 
   const formatDuration = (sec: number) => {
