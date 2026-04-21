@@ -80,7 +80,9 @@ export default function Stats() {
   // Time-to-mastery prediction: based on stable-words-per-day rate over last 30 days
   const mastery = useMemo(() => {
     const nonStable = words.filter(w => w.status !== 'stable').length;
-    if (words.length === 0) return null;
+    if (words.length === 0) {
+      return { empty: true as const, masteredPct: 0, nonStable: 0, done: false, perDay: 0, daysLeft: null as number | null, etaLabel: '' };
+    }
     const masteredPct = Math.round((stableWords / words.length) * 100);
     if (nonStable === 0) {
       return { done: true, masteredPct, nonStable: 0, perDay: 0, daysLeft: 0, etaLabel: '' };
