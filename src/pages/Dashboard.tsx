@@ -1,13 +1,40 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Flame, Zap, BookOpen, Bookmark, TrendingUp, ChevronRight } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
 import { getWordsForReview, getMasteryScore } from '@/lib/srs';
 import { Progress } from '@/components/ui/progress';
+import { supabase } from '@/integrations/supabase/client';
+
+function getDayPart(hour: number): { greeting: string; session: string } {
+  if (hour < 6) return { greeting: 'Goedenacht', session: 'nachtsessie' };
+  if (hour < 12) return { greeting: 'Goedemorgen', session: 'ochtendsessie' };
+  if (hour < 18) return { greeting: 'Goedemiddag', session: 'middagsessie' };
+  if (hour < 23) return { greeting: 'Goedenavond', session: 'avondsessie' };
+  return { greeting: 'Goedenacht', session: 'nachtsessie' };
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { words, stats, sessions } = useStore();
+  const [firstName, setFirstName] = useState<string>('');
+
+  useEffect(() => {
+    const load = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('profiles')
+        .select('display_name')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      const name = (data?.display_name || '').trim().split(/\s+/)[0] || '';
+      setFirstName(name);
+    };
+    load();
+  }, []);
+
+  const { greeting, session } = getDayPart(new Date().getHours());
   const dueWords = getWordsForReview(words);
   const todayLearned = words.filter(w => {
     if (!w.lastReview) return false;
@@ -44,7 +71,8 @@ export default function Dashboard() {
       {/* Greeting */}
       <div>
         <h1 className="text-2xl md:text-3xl font-bold text-foreground">
-          Goedemorgen, <span className="text-gradient-primary">Alex.</span>
+          {greeting}{firstName ? ', ' : ''}
+          {firstName && <span className="text-gradient-primary">{firstName}.</span>}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Klaar om je volgende {stats.dailyGoal} woorden te leren?
@@ -57,16 +85,16 @@ export default function Dashboard() {
         className="w-full gradient-primary rounded-2xl p-6 text-left transition-all hover:opacity-95 active:scale-[0.98] shadow-lg shadow-primary/20"
       >
         <p className="text-[10px] uppercase tracking-widest text-primary-foreground/70 font-medium">
-          Algoritmisch Geoptimaliseerd
+          algoritmisch geoptimaliseerd
         </p>
         <h2 className="text-xl md:text-2xl font-bold text-primary-foreground mt-2">
-          Start Ochtend Herhalingssessie
+          Start je {session}
         </h2>
         <p className="text-sm text-primary-foreground/80 mt-2">
           {dueWords.length} woorden staan klaar voor herhaling. Focus op je zwakke punten.
         </p>
         <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-background/20 px-4 py-2 text-sm font-semibold text-primary-foreground backdrop-blur-sm">
-          Verder Leren <ChevronRight className="h-4 w-4" />
+          Verder leren <ChevronRight className="h-4 w-4" />
         </div>
       </button>
 
