@@ -87,12 +87,12 @@ export default function Stats() {
     if (nonStable === 0) {
       return { empty: false as const, done: true, masteredPct, nonStable: 0, perDay: 0, daysLeft: 0, etaLabel: '', activeDays: 0, recentlyStable: 0 };
     }
-    // Estimate rate: words that became stable recently. Proxy: lastReview within 30d & status stable.
-    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    // Estimate rate: words that became stable recently. Proxy: lastReview within 14d & status stable.
+    const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
     const recentlyStable = words.filter(
       w => w.status === 'stable' && w.lastReview && new Date(w.lastReview).getTime() >= cutoff
     ).length;
-    // Active study days in last 30d (sessions with words studied)
+    // Active study days in last 14d (sessions with words studied)
     const activeDays = new Set(
       sessions
         .filter(s => new Date(s.date).getTime() >= cutoff && s.wordsStudied > 0)
@@ -191,7 +191,7 @@ export default function Stats() {
               <div className="min-w-0">
                 <p className="text-xl font-semibold text-foreground">Nog geen voorspelling</p>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Verschijnt zodra ten minste 1 woord <span className="text-foreground font-medium">stabiel</span> wordt in de laatste 30 dagen.
+                  Verschijnt zodra ten minste 1 woord <span className="text-foreground font-medium">stabiel</span> wordt in de laatste 14 dagen.
                 </p>
               </div>
               <div className="text-right shrink-0">
@@ -203,8 +203,8 @@ export default function Stats() {
               <div className="h-full gradient-accent transition-all" style={{ width: `${mastery.masteredPct}%` }} />
             </div>
             <div className="text-[10px] text-muted-foreground space-y-1">
-              <p>• Stabiele woorden (laatste 30 dagen): <span className="text-foreground font-medium">{mastery.recentlyStable}</span></p>
-              <p>• Actieve studiedagen (laatste 30 dagen): <span className="text-foreground font-medium">{mastery.activeDays}</span></p>
+              <p>• Stabiele woorden (laatste 14 dagen): <span className="text-foreground font-medium">{mastery.recentlyStable}</span></p>
+              <p>• Actieve studiedagen (laatste 14 dagen): <span className="text-foreground font-medium">{mastery.activeDays}</span></p>
               <p>• Resterend om te beheersen: <span className="text-foreground font-medium">{mastery.nonStable}</span></p>
             </div>
           </>
@@ -226,7 +226,7 @@ export default function Stats() {
               <div className="h-full gradient-accent transition-all" style={{ width: `${mastery.masteredPct}%` }} />
             </div>
             <p className="text-[10px] text-muted-foreground">
-              Tempo: {mastery.perDay.toFixed(1)} woord{mastery.perDay >= 2 ? 'en' : ''}/studiedag (laatste 30 dagen)
+              Tempo: {mastery.perDay.toFixed(1)} woord{mastery.perDay >= 2 ? 'en' : ''}/studiedag (laatste 14 dagen)
             </p>
           </>
         )}
