@@ -1,13 +1,40 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Flame, Zap, BookOpen, Bookmark, TrendingUp, ChevronRight } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
 import { getWordsForReview, getMasteryScore } from '@/lib/srs';
 import { Progress } from '@/components/ui/progress';
+import { supabase } from '@/integrations/supabase/client';
+
+function getDayPart(hour: number): { greeting: string; session: string } {
+  if (hour < 6) return { greeting: 'Goedenacht', session: 'nachtsessie' };
+  if (hour < 12) return { greeting: 'Goedemorgen', session: 'ochtendsessie' };
+  if (hour < 18) return { greeting: 'Goedemiddag', session: 'middagsessie' };
+  if (hour < 23) return { greeting: 'Goedenavond', session: 'avondsessie' };
+  return { greeting: 'Goedenacht', session: 'nachtsessie' };
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { words, stats, sessions } = useStore();
+  const [firstName, setFirstName] = useState<string>('');
+
+  useEffect(() => {
+    const load = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('profiles')
+        .select('display_name')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      const name = (data?.display_name || '').trim().split(/\s+/)[0] || '';
+      setFirstName(name);
+    };
+    load();
+  }, []);
+
+  const { greeting, session } = getDayPart(new Date().getHours());
   const dueWords = getWordsForReview(words);
   const todayLearned = words.filter(w => {
     if (!w.lastReview) return false;
