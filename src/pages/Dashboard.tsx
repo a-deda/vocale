@@ -1,10 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Flame, Zap, BookOpen, Bookmark, TrendingUp, ChevronRight } from 'lucide-react';
+import { Flame, Zap, BookOpen, Bookmark, TrendingUp, ChevronRight, Clock, Target } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
 import { getWordsForReview, getMasteryScore } from '@/lib/srs';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  Area,
+  Bar,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  ReferenceLine,
+  Cell,
+  defs,
+} from 'recharts';
 
 function getDayPart(hour: number): { greeting: string; session: string } {
   if (hour < 6) return { greeting: 'Goedenacht', session: 'nachtsessie' };
@@ -43,27 +57,48 @@ export default function Dashboard() {
   const progressPercent = stats.dailyGoal > 0 ? Math.min(100, Math.round((todayLearned / stats.dailyGoal) * 100)) : 0;
   const avgMastery = words.length > 0 ? Math.round(words.reduce((sum, w) => sum + getMasteryScore(w), 0) / words.length) : 0;
 
-  // Build last 7 days chart data from real sessions
+  // Build last 7 days chart data from real sessions (use local date keys)
   const weekData = useMemo(() => {
-    const dayLabels = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
-    const days: { label: string; words: number; minutes: number; isToday: boolean }[] = [];
+    const dayLabels = ['zo', 'ma', 'di', 'wo', 'do', 'vr', 'za'];
+    const localKey = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const days: {
+      label: string;
+      dateLabel: string;
+      words: number;
+      minutes: number;
+      sessions: number;
+      isToday: boolean;
+    }[] = [];
     const now = new Date();
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().slice(0, 10);
-      const daySessions = sessions.filter(s => s.date.slice(0, 10) === dateStr);
+      const key = localKey(d);
+      const daySessions = sessions.filter(s => {
+        const sd = new Date(s.date);
+        return localKey(sd) === key;
+      });
       days.push({
         label: dayLabels[d.getDay()],
+        dateLabel: `${d.getDate()}/${d.getMonth() + 1}`,
         words: daySessions.reduce((sum, s) => sum + s.wordsStudied, 0),
         minutes: Math.round(daySessions.reduce((sum, s) => sum + s.duration, 0) / 60),
+        sessions: daySessions.length,
         isToday: i === 0,
       });
     }
     return days;
   }, [sessions]);
 
-  const maxWords = Math.max(1, ...weekData.map(d => d.words));
+  const weekTotals = useMemo(() => {
+    const totalWords = weekData.reduce((s, d) => s + d.words, 0);
+    const totalMinutes = weekData.reduce((s, d) => s + d.minutes, 0);
+    const activeDays = weekData.filter(d => d.words > 0).length;
+    const avgPerActive = activeDays > 0 ? Math.round(totalWords / activeDays) : 0;
+    const best = weekData.reduce((m, d) => (d.words > m ? d.words : m), 0);
+    return { totalWords, totalMinutes, activeDays, avgPerActive, best };
+  }, [weekData]);
   const randomWord = words.length > 0 ? words[Math.floor(Math.random() * words.length)] : null;
 
   return (
@@ -178,31 +213,144 @@ export default function Dashboard() {
 
       {/* Learning Velocity */}
       <div className="glass-card rounded-xl p-5">
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
             <h3 className="text-lg font-bold text-foreground">Leersnelheid</h3>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mt-0.5">Afgelopen 7 dagen</p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mt-0.5">
+              Afgelopen 7 dagen
+            </p>
           </div>
-          <div className="flex gap-4 text-[10px] uppercase tracking-wider">
-            <span className="text-accent font-medium">Woorden</span>
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Totaal</p>
+              <p className="text-lg font-bold text-foreground leading-tight">
+                {weekTotals.totalWords} <span className="text-xs font-medium text-muted-foreground">woorden</span>
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Gemiddeld</p>
+              <p className="text-lg font-bold text-accent leading-tight">
+                {weekTotals.avgPerActive}
+                <span className="text-xs font-medium text-muted-foreground">/dag</span>
+              </p>
+            </div>
           </div>
         </div>
-        <div className="flex items-end gap-2 mt-4 h-24">
-          {weekData.map((day, i) => {
-            const height = maxWords > 0 ? (day.words / maxWords) * 100 : 0;
-            return (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                {day.words > 0 && (
-                  <span className="text-[9px] text-muted-foreground font-medium">{day.words}</span>
-                )}
-                <div
-                  className={`w-full rounded-t-md transition-all ${day.isToday ? 'gradient-accent' : 'bg-primary/40'}`}
-                  style={{ height: `${Math.max(height, day.words > 0 ? 8 : 2)}%` }}
+
+        {/* Mini stat row */}
+        <div className="grid grid-cols-3 gap-2 mt-4">
+          <div className="rounded-lg bg-primary/5 border border-primary/10 px-3 py-2">
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+              <Target className="h-3 w-3" /> Actieve dagen
+            </div>
+            <p className="text-base font-bold text-foreground mt-0.5">{weekTotals.activeDays}/7</p>
+          </div>
+          <div className="rounded-lg bg-primary/5 border border-primary/10 px-3 py-2">
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+              <TrendingUp className="h-3 w-3" /> Beste dag
+            </div>
+            <p className="text-base font-bold text-foreground mt-0.5">{weekTotals.best}</p>
+          </div>
+          <div className="rounded-lg bg-primary/5 border border-primary/10 px-3 py-2">
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+              <Clock className="h-3 w-3" /> Studietijd
+            </div>
+            <p className="text-base font-bold text-foreground mt-0.5">
+              {weekTotals.totalMinutes}<span className="text-xs font-medium text-muted-foreground">m</span>
+            </p>
+          </div>
+        </div>
+
+        {/* Chart */}
+        <div className="mt-4 h-56 -mx-2">
+          {weekTotals.totalWords === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center px-4">
+              <TrendingUp className="h-8 w-8 text-muted-foreground/50 mb-2" />
+              <p className="text-sm text-muted-foreground">
+                Nog geen activiteit deze week. Start een sessie om je voortgang te zien.
+              </p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={weekData} margin={{ top: 16, right: 12, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="velocityArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="hsl(var(--accent))" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="hsl(var(--accent))" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="velocityBar" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.9} />
+                    <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
+                  </linearGradient>
+                  <linearGradient id="velocityBarToday" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="hsl(var(--accent))" stopOpacity={1} />
+                    <stop offset="100%" stopColor="hsl(var(--accent))" stopOpacity={0.5} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="hsl(var(--border))" strokeOpacity={0.3} vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11, fontWeight: 500 }}
                 />
-                <span className={`text-[10px] ${day.isToday ? 'text-accent font-semibold' : 'text-muted-foreground'}`}>{day.label}</span>
-              </div>
-            );
-          })}
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  width={28}
+                  tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  cursor={{ fill: 'hsl(var(--primary) / 0.06)' }}
+                  contentStyle={{
+                    background: 'hsl(var(--background))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: 12,
+                    fontSize: 12,
+                    boxShadow: '0 8px 24px hsl(var(--background) / 0.4)',
+                  }}
+                  labelFormatter={(label, payload) => {
+                    const p: any = payload?.[0]?.payload;
+                    return p ? `${label} · ${p.dateLabel}` : label;
+                  }}
+                  formatter={(value: any, name: string) => {
+                    if (name === 'words') return [`${value} woorden`, 'Geleerd'];
+                    if (name === 'minutes') return [`${value} min`, 'Studietijd'];
+                    return [value, name];
+                  }}
+                />
+                {weekTotals.avgPerActive > 0 && (
+                  <ReferenceLine
+                    y={weekTotals.avgPerActive}
+                    stroke="hsl(var(--muted-foreground))"
+                    strokeDasharray="3 3"
+                    strokeOpacity={0.5}
+                    label={{
+                      value: `gem. ${weekTotals.avgPerActive}`,
+                      position: 'right',
+                      fill: 'hsl(var(--muted-foreground))',
+                      fontSize: 10,
+                    }}
+                  />
+                )}
+                <Area
+                  type="monotone"
+                  dataKey="words"
+                  stroke="hsl(var(--accent))"
+                  strokeWidth={2}
+                  fill="url(#velocityArea)"
+                  dot={false}
+                  activeDot={{ r: 4, fill: 'hsl(var(--accent))', strokeWidth: 0 }}
+                />
+                <Bar dataKey="words" radius={[6, 6, 0, 0]} barSize={18}>
+                  {weekData.map((d, i) => (
+                    <Cell key={i} fill={d.isToday ? 'url(#velocityBarToday)' : 'url(#velocityBar)'} />
+                  ))}
+                </Bar>
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 
