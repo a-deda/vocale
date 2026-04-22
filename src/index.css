@@ -69,6 +69,17 @@
   h1 {
     font-family: 'Space Grotesk', sans-serif;
     letter-spacing: -0.02em;
+    line-height: 1.1;
+    font-weight: 700;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    font-weight: 600;
   }
 }
 
