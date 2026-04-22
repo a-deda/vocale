@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Flame, Zap, BookOpen, Bookmark, TrendingUp, ChevronRight, Clock, Target } from 'lucide-react';
+import { Flame, Zap, BookOpen, TrendingUp, ChevronRight, Clock, Target } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
 import { getWordsForReview, getMasteryScore } from '@/lib/srs';
 import { Progress } from '@/components/ui/progress';
@@ -10,14 +10,12 @@ import {
   ComposedChart,
   Area,
   Bar,
-  Line,
   XAxis,
   YAxis,
   Tooltip,
   CartesianGrid,
   ReferenceLine,
   Cell,
-  defs,
 } from 'recharts';
 
 function getDayPart(hour: number): { greeting: string; session: string } {
