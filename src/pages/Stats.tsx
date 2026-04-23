@@ -1,10 +1,44 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore } from '@/components/StoreProvider';
 import { TrendingUp, Heart, BarChart3, Clock, Flame, Target, AlertCircle, Timer, Trophy } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { getMasteryScore } from '@/lib/srs';
 import { ActivityHeatmap } from '@/components/stats/ActivityHeatmap';
+
+const ETA_HISTORY_KEY = 'mastery-eta-history-v1';
+const ETA_MAX_ENTRIES = 5;
+const ETA_SMOOTH_WINDOW = 3;
+const ETA_MIN_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
+type EtaEntry = { t: number; daysLeft: number; perDay: number };
+
+function readEtaHistory(): EtaEntry[] {
+  try {
+    const raw = localStorage.getItem(ETA_HISTORY_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter(e => typeof e?.daysLeft === 'number') : [];
+  } catch {
+    return [];
+  }
+}
+
+function median(nums: number[]): number {
+  if (nums.length === 0) return 0;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function formatEtaLabel(daysLeft: number): string {
+  if (daysLeft <= 1) return '1 studiedag';
+  if (daysLeft < 14) return `${daysLeft} studiedagen`;
+  if (daysLeft < 60) return `~${Math.round(daysLeft / 7)} weken`;
+  if (daysLeft < 365) return `~${Math.round(daysLeft / 30)} maanden`;
+  if (daysLeft < 365 * 3) return `~${(daysLeft / 365).toFixed(1)} jaar`;
+  return '3+ jaar';
+}
 
 export default function Stats() {
   const { words, stats, sessions } = useStore();
@@ -120,15 +154,48 @@ export default function Stats() {
     // Cap unrealistic projections (>3 years) — show as "3+ jaar"
     const rawDaysLeft = remainingWork / perDay;
     const daysLeft = Math.ceil(rawDaysLeft);
-    let etaLabel: string;
-    if (daysLeft <= 1) etaLabel = '1 studiedag';
-    else if (daysLeft < 14) etaLabel = `${daysLeft} studiedagen`;
-    else if (daysLeft < 60) etaLabel = `~${Math.round(daysLeft / 7)} weken`;
-    else if (daysLeft < 365) etaLabel = `~${Math.round(daysLeft / 30)} maanden`;
-    else if (daysLeft < 365 * 3) etaLabel = `~${(daysLeft / 365).toFixed(1)} jaar`;
-    else etaLabel = '3+ jaar';
-    return { empty: false as const, done: false, masteredPct, nonStable, perDay, daysLeft, etaLabel, activeDays, recentlyStable };
+    return { empty: false as const, done: false, masteredPct, nonStable, perDay, daysLeft, etaLabel: formatEtaLabel(daysLeft), activeDays, recentlyStable };
   }, [words, sessions, stableWords]);
+
+  // Smoothing: persist recent ETA calculations and show median over last N values.
+  // This prevents the displayed ETA from swinging wildly between sessions.
+  const [etaHistory, setEtaHistory] = useState<EtaEntry[]>(() => readEtaHistory());
+  const lastWriteRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (mastery.empty || mastery.done || mastery.daysLeft === null) return;
+    const now = Date.now();
+    const prev = readEtaHistory();
+    const last = prev[prev.length - 1];
+    // Throttle: only record a new sample if >1h since last, or value changed significantly (>15%).
+    const changedSignificantly =
+      !last || Math.abs(last.daysLeft - mastery.daysLeft) / Math.max(last.daysLeft, 1) > 0.15;
+    if (now - lastWriteRef.current < 5000) return; // dedupe within same render cycle
+    if (last && now - last.t < ETA_MIN_INTERVAL_MS && !changedSignificantly) return;
+    lastWriteRef.current = now;
+    const next = [...prev, { t: now, daysLeft: mastery.daysLeft, perDay: mastery.perDay }].slice(-ETA_MAX_ENTRIES);
+    try {
+      localStorage.setItem(ETA_HISTORY_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore quota errors */
+    }
+    setEtaHistory(next);
+  }, [mastery.empty, mastery.done, mastery.daysLeft, mastery.perDay]);
+
+  const smoothedMastery = useMemo(() => {
+    if (mastery.empty || mastery.done || mastery.daysLeft === null) return mastery;
+    // Combine current value with last (N-1) historical samples for the median window.
+    const samples = [...etaHistory.slice(-(ETA_SMOOTH_WINDOW - 1)).map(e => e.daysLeft), mastery.daysLeft];
+    if (samples.length < 2) return mastery;
+    const smoothedDays = Math.ceil(median(samples));
+    return {
+      ...mastery,
+      daysLeft: smoothedDays,
+      etaLabel: formatEtaLabel(smoothedDays),
+      smoothed: true as const,
+      sampleCount: samples.length,
+    };
+  }, [mastery, etaHistory]);
 
   const formatDuration = (sec: number) => {
     if (sec < 60) return `${sec}s`;
@@ -229,7 +296,7 @@ export default function Stats() {
           <>
             <div className="flex items-end justify-between mb-3 gap-3">
               <div className="min-w-0">
-                <p className="text-3xl font-bold text-foreground truncate">{mastery.etaLabel}</p>
+                <p className="text-3xl font-bold text-foreground truncate">{smoothedMastery.etaLabel}</p>
                 <p className="text-[11px] text-muted-foreground mt-1">
                   tot alle {mastery.nonStable} resterende woorden stabiel zijn
                 </p>
@@ -243,7 +310,10 @@ export default function Stats() {
               <div className="h-full gradient-accent transition-all" style={{ width: `${mastery.masteredPct}%` }} />
             </div>
             <p className="text-[10px] text-muted-foreground">
-              Tempo: ~{mastery.perDay.toFixed(1)} woord-equivalent{mastery.perDay >= 2 ? 'en' : ''}/studiedag (laatste 30 dagen)
+              Tempo: ~{mastery.perDay.toFixed(1)} woord-equivalent{mastery.perDay >= 2 ? 'en' : ''}/studiedag
+              {'smoothed' in smoothedMastery && smoothedMastery.smoothed
+                ? ` • mediaan over ${smoothedMastery.sampleCount} metingen`
+                : ' • laatste 30 dagen'}
             </p>
           </>
         )}
