@@ -5,6 +5,7 @@ import { TrendingUp, Heart, BarChart3, Clock, Flame, Target, AlertCircle, Timer,
 import { Progress } from '@/components/ui/progress';
 import { getMasteryScore } from '@/lib/srs';
 import { ActivityHeatmap } from '@/components/stats/ActivityHeatmap';
+import { supabase } from '@/integrations/supabase/client';
 
 const ETA_HISTORY_KEY = 'mastery-eta-history-v1';
 const ETA_MAX_ENTRIES = 5;
@@ -13,15 +14,37 @@ const ETA_MIN_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 type EtaEntry = { t: number; daysLeft: number; perDay: number };
 
-function readEtaHistory(): EtaEntry[] {
+function sanitizeHistory(arr: unknown): EtaEntry[] {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .filter((e: any): e is EtaEntry =>
+      !!e && typeof e.daysLeft === 'number' && typeof e.t === 'number'
+    )
+    .slice(-ETA_MAX_ENTRIES);
+}
+
+function readEtaHistoryLocal(): EtaEntry[] {
   try {
     const raw = localStorage.getItem(ETA_HISTORY_KEY);
     if (!raw) return [];
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr.filter(e => typeof e?.daysLeft === 'number') : [];
+    return sanitizeHistory(JSON.parse(raw));
   } catch {
     return [];
   }
+}
+
+function writeEtaHistoryLocal(entries: EtaEntry[]) {
+  try {
+    localStorage.setItem(ETA_HISTORY_KEY, JSON.stringify(entries));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+function mergeHistories(a: EtaEntry[], b: EtaEntry[]): EtaEntry[] {
+  const map = new Map<number, EtaEntry>();
+  for (const e of [...a, ...b]) map.set(e.t, e);
+  return [...map.values()].sort((x, y) => x.t - y.t).slice(-ETA_MAX_ENTRIES);
 }
 
 function median(nums: number[]): number {
