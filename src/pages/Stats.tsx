@@ -256,7 +256,9 @@ export default function Stats() {
     return `${h}u ${m % 60}m`;
   };
 
-  const recentSessions = sessions.slice(-5).reverse();
+  const recentSessions = [...sessions]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5);
   const totalStatus = Math.max(1, words.length);
 
   return (
