@@ -220,8 +220,8 @@ export default function Stats() {
               <div className="h-full gradient-accent transition-all" style={{ width: `${mastery.masteredPct}%` }} />
             </div>
             <div className="text-[10px] text-muted-foreground space-y-1">
-              <p>• Stabiele woorden (laatste 14 dagen): <span className="text-foreground font-medium">{mastery.recentlyStable}</span></p>
-              <p>• Actieve studiedagen (laatste 14 dagen): <span className="text-foreground font-medium">{mastery.activeDays}</span></p>
+              <p>• Stabiele woorden (laatste 30 dagen): <span className="text-foreground font-medium">{mastery.recentlyStable}</span></p>
+              <p>• Actieve studiedagen (laatste 30 dagen): <span className="text-foreground font-medium">{mastery.activeDays}</span></p>
               <p>• Resterend om te beheersen: <span className="text-foreground font-medium">{mastery.nonStable}</span></p>
             </div>
           </>
