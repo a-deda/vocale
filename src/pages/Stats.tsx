@@ -296,7 +296,7 @@ export default function Stats() {
           <>
             <div className="flex items-end justify-between mb-3 gap-3">
               <div className="min-w-0">
-                <p className="text-3xl font-bold text-foreground truncate">{mastery.etaLabel}</p>
+                <p className="text-3xl font-bold text-foreground truncate">{smoothedMastery.etaLabel}</p>
                 <p className="text-[11px] text-muted-foreground mt-1">
                   tot alle {mastery.nonStable} resterende woorden stabiel zijn
                 </p>
@@ -310,7 +310,10 @@ export default function Stats() {
               <div className="h-full gradient-accent transition-all" style={{ width: `${mastery.masteredPct}%` }} />
             </div>
             <p className="text-[10px] text-muted-foreground">
-              Tempo: ~{mastery.perDay.toFixed(1)} woord-equivalent{mastery.perDay >= 2 ? 'en' : ''}/studiedag (laatste 30 dagen)
+              Tempo: ~{mastery.perDay.toFixed(1)} woord-equivalent{mastery.perDay >= 2 ? 'en' : ''}/studiedag
+              {'smoothed' in smoothedMastery && smoothedMastery.smoothed
+                ? ` • mediaan over ${smoothedMastery.sampleCount} metingen`
+                : ' • laatste 30 dagen'}
             </p>
           </>
         )}
