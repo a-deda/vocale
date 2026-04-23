@@ -77,7 +77,8 @@ export default function Stats() {
     return { totalSec, avgSec, avgWords };
   }, [sessions]);
 
-  // Time-to-mastery prediction: based on stable-words-per-day rate over last 30 days
+  // Time-to-mastery prediction: based on average mastery progress per active study day.
+  // More robust than counting "newly stable" words, which is noisy and underestimates progress.
   const mastery = useMemo(() => {
     const nonStable = words.filter(w => w.status !== 'stable').length;
     if (words.length === 0) {
@@ -87,29 +88,45 @@ export default function Stats() {
     if (nonStable === 0) {
       return { empty: false as const, done: true, masteredPct, nonStable: 0, perDay: 0, daysLeft: 0, etaLabel: '', activeDays: 0, recentlyStable: 0 };
     }
-    // Estimate rate: words that became stable recently. Proxy: lastReview within 14d & status stable.
-    const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    // Look at last 30 days of activity for a stabler rate.
+    const windowDays = 30;
+    const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
     const recentlyStable = words.filter(
       w => w.status === 'stable' && w.lastReview && new Date(w.lastReview).getTime() >= cutoff
     ).length;
-    // Active study days in last 14d (sessions with words studied)
     const activeDays = new Set(
       sessions
         .filter(s => new Date(s.date).getTime() >= cutoff && s.wordsStudied > 0)
         .map(s => new Date(s.date).toISOString().slice(0, 10))
     ).size;
-    const denom = Math.max(activeDays, 1);
-    const perDay = recentlyStable / denom;
-    if (perDay <= 0) {
+
+    // "Mastery-equivalent" progress per active day:
+    // each non-stable word counts partially based on its current mastery score (0-100).
+    // Remaining work = sum of (1 - score/100) for non-stable words.
+    const remainingWork = words
+      .filter(w => w.status !== 'stable')
+      .reduce((acc, w) => acc + Math.max(0, 1 - getMasteryScore(w) / 100), 0);
+
+    // Rate: combine "newly stable" with partial progress already made on review/learning words.
+    // Approximate progress made in window: stableWords gained + half of review words count as progress.
+    const reviewProgress = words.filter(w => w.status === 'review').length * 0.5;
+    const learningProgress = words.filter(w => w.status === 'learning').length * 0.2;
+    const totalProgress = recentlyStable + reviewProgress + learningProgress;
+
+    if (activeDays === 0 || totalProgress <= 0) {
       return { empty: false as const, done: false, masteredPct, nonStable, perDay: 0, daysLeft: null as number | null, etaLabel: 'meer data nodig', activeDays, recentlyStable };
     }
-    const daysLeft = Math.ceil(nonStable / perDay);
+    const perDay = totalProgress / activeDays;
+    // Cap unrealistic projections (>3 years) — show as "3+ jaar"
+    const rawDaysLeft = remainingWork / perDay;
+    const daysLeft = Math.ceil(rawDaysLeft);
     let etaLabel: string;
     if (daysLeft <= 1) etaLabel = '1 studiedag';
     else if (daysLeft < 14) etaLabel = `${daysLeft} studiedagen`;
     else if (daysLeft < 60) etaLabel = `~${Math.round(daysLeft / 7)} weken`;
     else if (daysLeft < 365) etaLabel = `~${Math.round(daysLeft / 30)} maanden`;
-    else etaLabel = `~${(daysLeft / 365).toFixed(1)} jaar`;
+    else if (daysLeft < 365 * 3) etaLabel = `~${(daysLeft / 365).toFixed(1)} jaar`;
+    else etaLabel = '3+ jaar';
     return { empty: false as const, done: false, masteredPct, nonStable, perDay, daysLeft, etaLabel, activeDays, recentlyStable };
   }, [words, sessions, stableWords]);
 
@@ -191,7 +208,7 @@ export default function Stats() {
               <div className="min-w-0">
                 <p className="text-xl font-semibold text-foreground">Nog geen voorspelling</p>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Verschijnt zodra ten minste 1 woord <span className="text-foreground font-medium">stabiel</span> wordt in de laatste 14 dagen.
+                  Verschijnt zodra je een paar studiedagen hebt voltooid in de laatste 30 dagen.
                 </p>
               </div>
               <div className="text-right shrink-0">
@@ -203,8 +220,8 @@ export default function Stats() {
               <div className="h-full gradient-accent transition-all" style={{ width: `${mastery.masteredPct}%` }} />
             </div>
             <div className="text-[10px] text-muted-foreground space-y-1">
-              <p>• Stabiele woorden (laatste 14 dagen): <span className="text-foreground font-medium">{mastery.recentlyStable}</span></p>
-              <p>• Actieve studiedagen (laatste 14 dagen): <span className="text-foreground font-medium">{mastery.activeDays}</span></p>
+              <p>• Stabiele woorden (laatste 30 dagen): <span className="text-foreground font-medium">{mastery.recentlyStable}</span></p>
+              <p>• Actieve studiedagen (laatste 30 dagen): <span className="text-foreground font-medium">{mastery.activeDays}</span></p>
               <p>• Resterend om te beheersen: <span className="text-foreground font-medium">{mastery.nonStable}</span></p>
             </div>
           </>
@@ -226,7 +243,7 @@ export default function Stats() {
               <div className="h-full gradient-accent transition-all" style={{ width: `${mastery.masteredPct}%` }} />
             </div>
             <p className="text-[10px] text-muted-foreground">
-              Tempo: {mastery.perDay.toFixed(1)} woord{mastery.perDay >= 2 ? 'en' : ''}/studiedag (laatste 14 dagen)
+              Tempo: ~{mastery.perDay.toFixed(1)} woord-equivalent{mastery.perDay >= 2 ? 'en' : ''}/studiedag (laatste 30 dagen)
             </p>
           </>
         )}
