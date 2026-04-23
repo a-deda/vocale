@@ -1,10 +1,44 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore } from '@/components/StoreProvider';
 import { TrendingUp, Heart, BarChart3, Clock, Flame, Target, AlertCircle, Timer, Trophy } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { getMasteryScore } from '@/lib/srs';
 import { ActivityHeatmap } from '@/components/stats/ActivityHeatmap';
+
+const ETA_HISTORY_KEY = 'mastery-eta-history-v1';
+const ETA_MAX_ENTRIES = 5;
+const ETA_SMOOTH_WINDOW = 3;
+const ETA_MIN_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
+type EtaEntry = { t: number; daysLeft: number; perDay: number };
+
+function readEtaHistory(): EtaEntry[] {
+  try {
+    const raw = localStorage.getItem(ETA_HISTORY_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter(e => typeof e?.daysLeft === 'number') : [];
+  } catch {
+    return [];
+  }
+}
+
+function median(nums: number[]): number {
+  if (nums.length === 0) return 0;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function formatEtaLabel(daysLeft: number): string {
+  if (daysLeft <= 1) return '1 studiedag';
+  if (daysLeft < 14) return `${daysLeft} studiedagen`;
+  if (daysLeft < 60) return `~${Math.round(daysLeft / 7)} weken`;
+  if (daysLeft < 365) return `~${Math.round(daysLeft / 30)} maanden`;
+  if (daysLeft < 365 * 3) return `~${(daysLeft / 365).toFixed(1)} jaar`;
+  return '3+ jaar';
+}
 
 export default function Stats() {
   const { words, stats, sessions } = useStore();
