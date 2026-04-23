@@ -243,7 +243,7 @@ export default function Stats() {
               <div className="h-full gradient-accent transition-all" style={{ width: `${mastery.masteredPct}%` }} />
             </div>
             <p className="text-[10px] text-muted-foreground">
-              Tempo: {mastery.perDay.toFixed(1)} woord{mastery.perDay >= 2 ? 'en' : ''}/studiedag (laatste 14 dagen)
+              Tempo: ~{mastery.perDay.toFixed(1)} woord-equivalent{mastery.perDay >= 2 ? 'en' : ''}/studiedag (laatste 30 dagen)
             </p>
           </>
         )}
