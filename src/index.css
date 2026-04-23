@@ -111,4 +111,9 @@
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
+  .flame-active {
+    color: hsl(var(--streak));
+    fill: hsl(var(--streak));
+    filter: drop-shadow(0 0 6px hsl(var(--streak) / 0.65)) drop-shadow(0 0 12px hsl(var(--streak) / 0.35));
+  }
 }
