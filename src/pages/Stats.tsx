@@ -180,30 +180,58 @@ export default function Stats() {
     return { empty: false as const, done: false, masteredPct, nonStable, perDay, daysLeft, etaLabel: formatEtaLabel(daysLeft), activeDays, recentlyStable };
   }, [words, sessions, stableWords]);
 
-  // Smoothing: persist recent ETA calculations and show median over last N values.
-  // This prevents the displayed ETA from swinging wildly between sessions.
-  const [etaHistory, setEtaHistory] = useState<EtaEntry[]>(() => readEtaHistory());
+  // Smoothing: persist recent ETA calculations on the user's profile so it syncs across devices.
+  // Falls back to localStorage cache for instant render and offline use.
+  const [etaHistory, setEtaHistory] = useState<EtaEntry[]>(() => readEtaHistoryLocal());
   const lastWriteRef = useRef<number>(0);
+  const remoteLoadedRef = useRef<boolean>(false);
 
+  // Initial fetch from profile, merged with local cache.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('eta_history')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (cancelled || error) return;
+      const remote = sanitizeHistory(data?.eta_history);
+      const merged = mergeHistories(readEtaHistoryLocal(), remote);
+      writeEtaHistoryLocal(merged);
+      setEtaHistory(merged);
+      remoteLoadedRef.current = true;
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Append a new sample (throttled), then sync to profile.
   useEffect(() => {
     if (mastery.empty || mastery.done || mastery.daysLeft === null) return;
+    if (!remoteLoadedRef.current) return; // wait until we've merged remote first
     const now = Date.now();
-    const prev = readEtaHistory();
+    const prev = etaHistory;
     const last = prev[prev.length - 1];
-    // Throttle: only record a new sample if >1h since last, or value changed significantly (>15%).
     const changedSignificantly =
       !last || Math.abs(last.daysLeft - mastery.daysLeft) / Math.max(last.daysLeft, 1) > 0.15;
-    if (now - lastWriteRef.current < 5000) return; // dedupe within same render cycle
+    if (now - lastWriteRef.current < 5000) return;
     if (last && now - last.t < ETA_MIN_INTERVAL_MS && !changedSignificantly) return;
     lastWriteRef.current = now;
     const next = [...prev, { t: now, daysLeft: mastery.daysLeft, perDay: mastery.perDay }].slice(-ETA_MAX_ENTRIES);
-    try {
-      localStorage.setItem(ETA_HISTORY_KEY, JSON.stringify(next));
-    } catch {
-      /* ignore quota errors */
-    }
+    writeEtaHistoryLocal(next);
     setEtaHistory(next);
-  }, [mastery.empty, mastery.done, mastery.daysLeft, mastery.perDay]);
+    // Fire-and-forget remote sync.
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await supabase
+        .from('profiles')
+        .update({ eta_history: next as any })
+        .eq('user_id', user.id);
+    })();
+  }, [mastery.empty, mastery.done, mastery.daysLeft, mastery.perDay, etaHistory]);
 
   const smoothedMastery = useMemo(() => {
     if (mastery.empty || mastery.done || mastery.daysLeft === null) return mastery;
