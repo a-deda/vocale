@@ -52,6 +52,8 @@ export default function Dashboard() {
     if (!w.lastReview) return false;
     return new Date(w.lastReview).toDateString() === new Date().toDateString();
   }).length;
+  const today = new Date().toISOString().split('T')[0];
+  const studiedToday = stats.lastStudyDate === today || todayLearned > 0;
   const progressPercent = stats.dailyGoal > 0 ? Math.min(100, Math.round((todayLearned / stats.dailyGoal) * 100)) : 0;
   const avgMastery = words.length > 0 ? Math.round(words.reduce((sum, w) => sum + getMasteryScore(w), 0) / words.length) : 0;
 
