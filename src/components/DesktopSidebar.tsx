@@ -13,6 +13,8 @@ const sidebarItems = [
 export default function DesktopSidebar() {
   const location = useLocation();
   const { stats } = useStore();
+  const today = new Date().toISOString().split('T')[0];
+  const studiedToday = stats.lastStudyDate === today;
 
   return (
     <aside className="hidden md:flex md:w-56 lg:w-64 flex-col fixed left-0 top-0 bottom-0 border-r border-border bg-sidebar z-50">
