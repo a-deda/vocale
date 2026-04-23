@@ -13,6 +13,8 @@ const sidebarItems = [
 export default function DesktopSidebar() {
   const location = useLocation();
   const { stats } = useStore();
+  const today = new Date().toISOString().split('T')[0];
+  const studiedToday = stats.lastStudyDate === today;
 
   return (
     <aside className="hidden md:flex md:w-56 lg:w-64 flex-col fixed left-0 top-0 bottom-0 border-r border-border bg-sidebar z-50">
@@ -65,8 +67,11 @@ export default function DesktopSidebar() {
                 <span className="text-sm font-bold text-foreground">{stats.streakFreezes}</span>
               </div>
             )}
-            <div className="flex items-center gap-1">
-              <Flame className="h-4 w-4 text-streak" />
+            <div
+              className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 ${studiedToday ? 'bg-streak/15' : ''}`}
+              title={studiedToday ? 'Vandaag al geoefend' : 'Nog niet geoefend vandaag'}
+            >
+              <Flame className={`h-4 w-4 ${studiedToday ? 'flame-active' : 'text-streak'}`} />
               <span className="text-sm font-bold text-foreground">{stats.currentStreak}</span>
             </div>
           </div>

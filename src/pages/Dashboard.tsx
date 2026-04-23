@@ -52,6 +52,8 @@ export default function Dashboard() {
     if (!w.lastReview) return false;
     return new Date(w.lastReview).toDateString() === new Date().toDateString();
   }).length;
+  const today = new Date().toISOString().split('T')[0];
+  const studiedToday = stats.lastStudyDate === today || todayLearned > 0;
   const progressPercent = stats.dailyGoal > 0 ? Math.min(100, Math.round((todayLearned / stats.dailyGoal) * 100)) : 0;
   const avgMastery = words.length > 0 ? Math.round(words.reduce((sum, w) => sum + getMasteryScore(w), 0) / words.length) : 0;
 
@@ -141,9 +143,14 @@ export default function Dashboard() {
               <span className="text-[10px] font-bold text-primary">{stats.streakFreezes}</span>
             </div>
           )}
-          <Flame className="h-8 w-8 mx-auto text-streak" />
+          <Flame
+            className={`h-8 w-8 mx-auto ${studiedToday ? 'flame-active' : 'text-streak'}`}
+            aria-label={studiedToday ? 'Vandaag al geoefend' : 'Nog niet geoefend vandaag'}
+          />
           <p className="text-3xl font-bold text-foreground mt-2">{stats.currentStreak}</p>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Dag Streak</p>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+            {studiedToday ? 'Vandaag voltooid' : 'Dag Streak'}
+          </p>
           <div className="flex gap-1 mt-3 justify-center">
             {Array.from({ length: 7 }).map((_, i) => (
               <div

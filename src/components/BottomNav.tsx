@@ -55,6 +55,8 @@ export default function BottomNav() {
 
 export function TopBar() {
   const { stats } = useStore();
+  const today = new Date().toISOString().split('T')[0];
+  const studiedToday = stats.lastStudyDate === today;
   return (
     <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur-lg md:hidden">
       <div className="flex items-center gap-2">
@@ -67,8 +69,11 @@ export function TopBar() {
             <span className="text-sm font-bold text-foreground">{stats.streakFreezes}</span>
           </div>
         )}
-        <div className="flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5">
-          <Flame className="h-4 w-4 text-streak" />
+        <div
+          className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 ${studiedToday ? 'bg-streak/15' : 'bg-secondary'}`}
+          title={studiedToday ? 'Vandaag al geoefend' : 'Nog niet geoefend vandaag'}
+        >
+          <Flame className={`h-4 w-4 ${studiedToday ? 'flame-active' : 'text-streak'}`} />
           <span className="text-sm font-bold text-foreground">{stats.currentStreak}</span>
         </div>
       </div>

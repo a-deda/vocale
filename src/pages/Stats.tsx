@@ -256,7 +256,9 @@ export default function Stats() {
     return `${h}u ${m % 60}m`;
   };
 
-  const recentSessions = sessions.slice(-5).reverse();
+  const recentSessions = [...sessions]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5);
   const totalStatus = Math.max(1, words.length);
 
   return (
@@ -566,6 +568,18 @@ export default function Stats() {
             {recentSessions.map(s => {
               const total = s.correct + s.incorrect;
               const pct = total > 0 ? Math.round((s.correct / total) * 100) : 0;
+              const sd = new Date(s.date);
+              const today = new Date();
+              const yesterday = new Date(Date.now() - 86400000);
+              const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+              let when: string;
+              if (sameDay(sd, today)) {
+                when = `Vandaag · ${sd.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}`;
+              } else if (sameDay(sd, yesterday)) {
+                when = `Gisteren · ${sd.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}`;
+              } else {
+                when = sd.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' });
+              }
               return (
                 <div key={s.id} className="flex items-center gap-3">
                   <div className="h-8 w-8 rounded-full gradient-primary flex items-center justify-center shrink-0">
@@ -577,8 +591,8 @@ export default function Stats() {
                       {pct}% correct • {Math.floor(s.duration / 60)}:{String(s.duration % 60).padStart(2, '0')} min
                     </p>
                   </div>
-                  <span className="text-[10px] text-muted-foreground shrink-0">
-                    {new Date(s.date).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
+                  <span className="text-[10px] text-muted-foreground shrink-0 text-right">
+                    {when}
                   </span>
                 </div>
               );
