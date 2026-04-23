@@ -208,7 +208,7 @@ export default function Stats() {
               <div className="min-w-0">
                 <p className="text-xl font-semibold text-foreground">Nog geen voorspelling</p>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Verschijnt zodra ten minste 1 woord <span className="text-foreground font-medium">stabiel</span> wordt in de laatste 14 dagen.
+                  Verschijnt zodra je een paar studiedagen hebt voltooid in de laatste 30 dagen.
                 </p>
               </div>
               <div className="text-right shrink-0">
