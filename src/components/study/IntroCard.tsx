@@ -29,7 +29,7 @@ export default function IntroCard({ word, options, selected, onSelect }: IntroCa
       }
       if (idx >= 0 && idx < options.length) {
         e.preventDefault();
-        onSelect(options[num - 1]);
+        onSelect(options[idx]);
       }
     };
     window.addEventListener('keydown', handler);
