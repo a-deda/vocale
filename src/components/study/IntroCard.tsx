@@ -58,9 +58,14 @@ export default function IntroCard({ word, options, selected, onSelect }: IntroCa
                 key={i}
                 onClick={() => onSelect(opt)}
                 disabled={selected !== null}
-                className={`rounded-xl border p-4 text-left text-sm font-medium transition-all ${style}`}
+                className={`rounded-xl border p-4 text-left text-sm font-medium transition-all flex items-center gap-3 ${style}`}
               >
-                {opt}
+                {!isMobile && (
+                  <span className="flex-shrink-0 inline-flex items-center justify-center h-6 w-6 rounded-md bg-secondary text-muted-foreground text-xs font-mono">
+                    {i + 1}
+                  </span>
+                )}
+                <span className="flex-1">{opt}</span>
               </button>
             );
           })}
