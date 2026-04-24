@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { Word } from '@/types/word';
 import { formatTranslations } from '@/lib/translation-utils';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface IntroCardProps {
   word: Word;
@@ -9,6 +11,24 @@ interface IntroCardProps {
 }
 
 export default function IntroCard({ word, options, selected, onSelect }: IntroCardProps) {
+  const isMobile = useIsMobile();
+
+  useEffect(() => {
+    if (isMobile || selected !== null || options.length === 0) return;
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const num = parseInt(e.key, 10);
+      if (!isNaN(num) && num >= 1 && num <= options.length) {
+        e.preventDefault();
+        onSelect(options[num - 1]);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isMobile, selected, options, onSelect]);
+
   return (
     <div className="space-y-6">
       <div className="glass-card rounded-2xl p-8 text-center">
