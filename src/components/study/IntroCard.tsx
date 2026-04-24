@@ -20,7 +20,14 @@ export default function IntroCard({ word, options, selected, onSelect }: IntroCa
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const num = parseInt(e.key, 10);
-      if (!isNaN(num) && num >= 1 && num <= options.length) {
+      let idx = -1;
+      if (!isNaN(num) && num >= 1 && num <= 9) {
+        idx = num - 1;
+      } else if (e.code && e.code.startsWith('Numpad')) {
+        const n = parseInt(e.code.replace('Numpad', ''), 10);
+        if (!isNaN(n) && n >= 1 && n <= 9) idx = n - 1;
+      }
+      if (idx >= 0 && idx < options.length) {
         e.preventDefault();
         onSelect(options[num - 1]);
       }
