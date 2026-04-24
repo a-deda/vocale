@@ -1,6 +1,16 @@
 import { useState, useMemo } from 'react';
 import { Zap, Loader2, Trash2, Check, X, Pencil } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Word } from '@/types/word';
 import { getMasteryScore } from '@/lib/srs';
 import { Progress } from '@/components/ui/progress';
@@ -28,6 +38,7 @@ export default function WordBank() {
   const [editingWordId, setEditingWordId] = useState<string | null>(null);
   const [editOriginal, setEditOriginal] = useState('');
   const [editTranslation, setEditTranslation] = useState('');
+  const [wordToDeleteId, setWordToDeleteId] = useState<string | null>(null);
 
   const handleAddWords = async () => {
     const lines = bulkInput.split('\n').map(l => l.trim()).filter(Boolean);
@@ -193,6 +204,7 @@ export default function WordBank() {
   const hasMore = visibleCount < filteredWords.length;
 
   return (
+    <>
     <div className="space-y-6 animate-slide-up">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Mijn Woorden</h1>
@@ -317,7 +329,7 @@ export default function WordBank() {
                       <button onClick={() => startEditingWord(word)} className="text-muted-foreground hover:text-foreground p-1">
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
-                      <button onClick={() => deleteWord(word.id)} className="text-muted-foreground hover:text-destructive p-1">
+                      <button onClick={() => setWordToDeleteId(word.id)} className="text-muted-foreground hover:text-destructive p-1">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -381,5 +393,32 @@ export default function WordBank() {
         </div>
       )}
     </div>
+
+      <AlertDialog open={!!wordToDeleteId} onOpenChange={() => setWordToDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Woord verwijderen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {wordToDeleteId && (() => {
+                const w = words.find(w => w.id === wordToDeleteId);
+                return w ? <>Verwijder <span className="font-medium text-foreground">"{w.original}"</span>? Dit kan niet ongedaan worden gemaakt.</> : 'Dit kan niet ongedaan worden gemaakt.';
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuleren</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (wordToDeleteId) deleteWord(wordToDeleteId);
+                setWordToDeleteId(null);
+              }}
+            >
+              Verwijderen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
