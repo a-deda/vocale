@@ -36,6 +36,7 @@ export default function Study() {
   const [selectedMC, setSelectedMC] = useState<string | null>(null);
   const [sessionStats, setSessionStats] = useState({ correct: 0, incorrect: 0, startTime: Date.now() });
   const totalWordsRef = useRef(0);
+  const expectedTotalRef = useRef(0);
   const cardStartTimeRef = useRef(Date.now());
 
   const [listeningMutedUntil, setListeningMutedUntil] = useState<number | null>(() => {
@@ -79,6 +80,8 @@ export default function Study() {
     if (!initialized && words.length > 0) {
       const reviewWords = getWordsForReview(words);
       setQueue(reviewWords);
+      const nc = reviewWords.filter(w => w.status === 'new').length;
+      expectedTotalRef.current = nc * 2 + (reviewWords.length - nc);
       setInitialized(true);
     }
   }, [words, initialized]);
@@ -104,7 +107,7 @@ export default function Study() {
     }
   }, [currentWord?.id]);
 
-  const progress = queue.length > 0 ? (currentIndex / queue.length) * 100 : 0;
+  const progress = expectedTotalRef.current > 0 ? (currentIndex / expectedTotalRef.current) * 100 : 0;
 
   const mcOptions = useMemo(() => {
     if (!currentWord || exerciseType !== 'mc') return [];
@@ -294,7 +297,7 @@ export default function Study() {
             {EXERCISE_LABELS[exerciseType]}
           </span>
           <span className="text-lg font-bold text-foreground">{currentIndex + 1}</span>
-          <span className="text-muted-foreground"> / {queue.length}</span>
+          <span className="text-muted-foreground"> / {expectedTotalRef.current}</span>
         </div>
       </div>
       <Progress value={progress} className="h-1.5 mb-6 bg-border" />
