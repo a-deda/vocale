@@ -151,18 +151,15 @@ export default function Study() {
     if (!currentWord || selectedMC !== null) return;
     setSelectedMC(selected);
 
-    setTimeout(async () => {
+    setTimeout(() => {
       if (currentWord.status === 'new') {
-        // Intro: mark introduced, re-add for production
         const updates = markIntroduced(currentWord);
-        await updateWord(currentWord.id, updates);
         setQueue(prev => [...prev, { ...currentWord, ...updates } as Word]);
+        void updateWord(currentWord.id, updates);
       } else {
-        // Fallback MC after errors: reset consecutiveErrors on correct
         const isCorrect = selected === formatTranslations(currentWord.translation);
         const updates: Partial<Word> = { consecutiveErrors: isCorrect ? 0 : (currentWord.consecutiveErrors ?? 0) + 1 };
-        await updateWord(currentWord.id, updates);
-
+        void updateWord(currentWord.id, updates);
         setSessionStats(prev => ({
           ...prev,
           correct: isCorrect ? prev.correct + 1 : prev.correct,
@@ -189,19 +186,17 @@ export default function Study() {
       wrong: 'wrong',
     };
 
-    setTimeout(async () => {
+    setTimeout(() => {
       const baseRating = ratingMap[result];
       const rating = adjustRatingBySpeed(baseRating, responseTimeMs, currentWord);
       const updates = calculateNextReview(currentWord, rating);
-      await updateWord(currentWord.id, updates);
-      await updateStreak();
-
+      void updateWord(currentWord.id, updates);
+      void updateStreak();
       setSessionStats(prev => ({
         ...prev,
         correct: result === 'correct' ? prev.correct + 1 : prev.correct,
         incorrect: result !== 'correct' ? prev.incorrect + 1 : prev.incorrect,
       }));
-
       moveToNext();
     }, 1500);
   }, [currentWord, typedAnswer, exerciseType, synonymOriginals, updateWord, updateStreak, moveToNext]);
@@ -211,29 +206,26 @@ export default function Study() {
     if (!currentWord) return;
     setAnswerState({ result: 'wrong', input: '' });
 
-    setTimeout(async () => {
+    setTimeout(() => {
       const updates = calculateNextReview(currentWord, 'wrong');
-      await updateWord(currentWord.id, updates);
-      await updateStreak();
-
+      void updateWord(currentWord.id, updates);
+      void updateStreak();
       setSessionStats(prev => ({ ...prev, incorrect: prev.incorrect + 1 }));
       moveToNext();
     }, 1500);
   }, [currentWord, updateWord, updateStreak, moveToNext]);
 
   // Flashcard self-rate handler
-  const handleFlashcardRate = useCallback(async (rating: ReviewRating) => {
+  const handleFlashcardRate = useCallback((rating: ReviewRating) => {
     if (!currentWord) return;
     const updates = calculateNextReview(currentWord, rating);
-    await updateWord(currentWord.id, updates);
-    await updateStreak();
-
+    void updateWord(currentWord.id, updates);
+    void updateStreak();
     setSessionStats(prev => ({
       ...prev,
       correct: (rating === 'good' || rating === 'easy') ? prev.correct + 1 : prev.correct,
       incorrect: (rating !== 'good' && rating !== 'easy') ? prev.incorrect + 1 : prev.incorrect,
     }));
-
     moveToNext();
   }, [currentWord, updateWord, updateStreak, moveToNext]);
 
