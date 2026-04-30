@@ -1,5 +1,5 @@
 import { Word } from '@/types/word';
-import { formatTranslations } from '@/lib/translation-utils';
+import { formatTranslations, stripAnnotations } from '@/lib/translation-utils';
 
 /**
  * SM-2 Spaced Repetition Algorithm
@@ -173,17 +173,18 @@ export function getWordsForReview(words: Word[], limit = 20): Word[] {
 
 /**
  * Fuzzy match: normalize accents, compare with Levenshtein distance.
+ * Annotaties zoals "(agg.)" worden vóór vergelijking weggehaald.
  */
 export function fuzzyMatch(input: string, correct: string): 'correct' | 'almost' | 'wrong' {
   // Support multi-translation: split on semicolon, match against each, return best result
-  const translations = correct.split(';').map(t => t.trim()).filter(Boolean);
+  const translations = correct.split(';').map(t => stripAnnotations(t.trim())).filter(Boolean);
   if (translations.length > 1) {
     const results = translations.map(t => fuzzyMatchSingle(input, t));
     if (results.includes('correct')) return 'correct';
     if (results.includes('almost')) return 'almost';
     return 'wrong';
   }
-  return fuzzyMatchSingle(input, correct);
+  return fuzzyMatchSingle(input, stripAnnotations(correct));
 }
 
 function fuzzyMatchSingle(input: string, correct: string): 'correct' | 'almost' | 'wrong' {
@@ -342,14 +343,16 @@ export function getReviewIntervalText(rating: ReviewRating, word: Word): string 
 
 /**
  * Generate 3 wrong multiple-choice options from a word pool.
+ * Annotations (agg., avv.) are stripped from options so they don't interfere with matching.
  */
 export function generateMCOptions(correct: Word, allWords: Word[]): string[] {
-  const correctLabel = formatTranslations(correct.translation);
+  const correctLabel = formatTranslations(correct.translation)
+    .replace(/\s*\([^)]+\)/g, '').trim();
   const others = allWords
     .filter(w => w.id !== correct.id && w.translation !== correct.translation)
     .sort(() => Math.random() - 0.5)
     .slice(0, 3)
-    .map(w => formatTranslations(w.translation));
+    .map(w => formatTranslations(w.translation).replace(/\s*\([^)]+\)/g, '').trim());
 
   const fallbacks = ['onbekend', 'geen vertaling', 'anders'];
   while (others.length < 3) {

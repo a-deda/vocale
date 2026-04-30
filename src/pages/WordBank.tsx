@@ -351,13 +351,15 @@ export default function WordBank() {
                       />
                       <div className="flex gap-2 pt-1">
                         <button
-                          onClick={handleSaveWord}
+                          type="button"
+                          onPointerDown={e => { e.preventDefault(); handleSaveWord(); }}
                           className="flex-1 flex items-center justify-center gap-1.5 gradient-primary rounded-lg px-3 py-2 text-sm font-semibold text-primary-foreground"
                         >
                           <Check className="h-3.5 w-3.5" /> Opslaan
                         </button>
                         <button
-                          onClick={cancelEditingWord}
+                          type="button"
+                          onPointerDown={e => { e.preventDefault(); cancelEditingWord(); }}
                           className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground"
                         >
                           Annuleren

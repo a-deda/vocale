@@ -1,22 +1,29 @@
 import { useState, useEffect } from 'react';
 import { Word } from '@/types/word';
 import { Check, X, Minus } from 'lucide-react';
-import type { ReviewRating } from '@/lib/srs';
-import { getReviewIntervalText } from '@/lib/srs';
-import { formatTranslations } from '@/lib/translation-utils';
+import { GRADE, fsrsIntervalText } from '@/lib/fsrs';
+import type { FsrsGrade, FsrsState } from '@/lib/fsrs';
+import { formatTranslationsClean } from '@/lib/translation-utils';
+import AnnotationTags from './AnnotationTags';
 
 interface FlashcardCardProps {
-  word: Word;
-  onRate: (rating: ReviewRating) => void;
+  word:      Word;
+  fsrsState: FsrsState;
+  today:     string; // YYYY-MM-DD
+  onRate:    (grade: FsrsGrade) => void;
 }
 
-export default function FlashcardCard({ word, onRate }: FlashcardCardProps) {
+export default function FlashcardCard({ word, fsrsState, today, onRate }: FlashcardCardProps) {
   const [revealed, setRevealed] = useState(false);
 
-  // Reset revealed state when word changes
-  useEffect(() => {
-    setRevealed(false);
-  }, [word.id]);
+  useEffect(() => { setRevealed(false); }, [word.id]);
+
+  const buttons: { grade: FsrsGrade; label: string; icon: typeof X; color: string }[] = [
+    { grade: GRADE.FORGOT, label: 'Opnieuw',  icon: X,     color: 'bg-destructive/10 border-destructive/30 text-destructive' },
+    { grade: GRADE.HARD,   label: 'Moeilijk', icon: Minus,  color: 'bg-warning/10 border-warning/30 text-warning' },
+    { grade: GRADE.GOOD,   label: 'Goed',     icon: Check,  color: 'bg-success/10 border-success/30 text-success' },
+    { grade: GRADE.EASY,   label: 'Makkelijk', icon: Check, color: 'bg-primary/10 border-primary/30 text-primary' },
+  ];
 
   return (
     <div className="space-y-6">
@@ -26,12 +33,16 @@ export default function FlashcardCard({ word, onRate }: FlashcardCardProps) {
         </span>
         <h2 className="text-4xl font-bold text-foreground mt-3">{word.original}</h2>
         {revealed && (
-          <p className="text-lg text-muted-foreground mt-3 animate-slide-up">{formatTranslations(word.translation)}</p>
+          <div className="mt-3 animate-slide-up">
+            <p className="text-lg text-muted-foreground">{formatTranslationsClean(word.translation)}</p>
+            <AnnotationTags text={word.translation} />
+          </div>
         )}
       </div>
 
       {!revealed ? (
         <button
+          type="button"
           onClick={() => setRevealed(true)}
           className="w-full gradient-primary rounded-xl px-6 py-3 text-sm font-semibold text-primary-foreground"
         >
@@ -39,38 +50,20 @@ export default function FlashcardCard({ word, onRate }: FlashcardCardProps) {
         </button>
       ) : (
         <div className="grid grid-cols-4 gap-2 animate-slide-up">
-          <button
-            onClick={() => onRate('wrong')}
-            className="flex flex-col items-center gap-1.5 rounded-xl border p-3 bg-destructive/10 border-destructive/30 text-destructive transition-all hover:scale-105 active:scale-95"
-          >
-            <X className="h-5 w-5" />
-            <span className="text-xs font-semibold">Opnieuw</span>
-            <span className="text-[9px] text-muted-foreground">1 dag</span>
-          </button>
-          <button
-            onClick={() => onRate('hard')}
-            className="flex flex-col items-center gap-1.5 rounded-xl border p-3 bg-warning/10 border-warning/30 text-warning transition-all hover:scale-105 active:scale-95"
-          >
-            <Minus className="h-5 w-5" />
-            <span className="text-xs font-semibold">Moeilijk</span>
-            <span className="text-[9px] text-muted-foreground">{getReviewIntervalText('hard', word)}</span>
-          </button>
-          <button
-            onClick={() => onRate('good')}
-            className="flex flex-col items-center gap-1.5 rounded-xl border p-3 bg-success/10 border-success/30 text-success transition-all hover:scale-105 active:scale-95"
-          >
-            <Check className="h-5 w-5" />
-            <span className="text-xs font-semibold">Goed</span>
-            <span className="text-[9px] text-muted-foreground">{getReviewIntervalText('good', word)}</span>
-          </button>
-          <button
-            onClick={() => onRate('easy')}
-            className="flex flex-col items-center gap-1.5 rounded-xl border p-3 bg-primary/10 border-primary/30 text-primary transition-all hover:scale-105 active:scale-95"
-          >
-            <Check className="h-5 w-5" />
-            <span className="text-xs font-semibold">Makkelijk</span>
-            <span className="text-[9px] text-muted-foreground">{getReviewIntervalText('easy', word)}</span>
-          </button>
+          {buttons.map(({ grade, label, icon: Icon, color }) => (
+            <button
+              key={grade}
+              type="button"
+              onClick={() => onRate(grade)}
+              className={`flex flex-col items-center gap-1.5 rounded-xl border p-3 ${color} transition-all hover:scale-105 active:scale-95`}
+            >
+              <Icon className="h-5 w-5" />
+              <span className="text-xs font-semibold">{label}</span>
+              <span className="text-[9px] text-muted-foreground">
+                {fsrsIntervalText(fsrsState, grade, today)}
+              </span>
+            </button>
+          ))}
         </div>
       )}
     </div>

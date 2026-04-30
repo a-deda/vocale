@@ -81,28 +81,6 @@ export default function Stats() {
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
   }, [words]);
 
-  // 30-day activity
-  const activity = useMemo(() => {
-    const days: { date: Date; key: string; count: number }[] = [];
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      days.push({ date: d, key: d.toISOString().slice(0, 10), count: 0 });
-    }
-    const map = new Map(days.map(d => [d.key, d]));
-    for (const s of sessions) {
-      const key = new Date(s.date).toISOString().slice(0, 10);
-      const day = map.get(key);
-      if (day) day.count += s.wordsStudied;
-    }
-    return days;
-  }, [sessions]);
-
-  const maxActivity = Math.max(1, ...activity.map(d => d.count));
-  const todayKey = new Date().toISOString().slice(0, 10);
-
   // Accuracy last 7 days
   const accuracy7d = useMemo(() => {
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -377,40 +355,6 @@ export default function Stats() {
       {/* ACTIVITEIT */}
       <div className="space-y-3 pt-2">
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Activiteit</p>
-
-        <div className="glass-card rounded-xl p-5">
-          <div className="flex items-baseline justify-between mb-4">
-            <h3 className="text-sm font-semibold text-foreground">Laatste 30 dagen</h3>
-            <p className="text-xs text-muted-foreground">
-              {activity.reduce((a, d) => a + d.count, 0)} woorden
-            </p>
-          </div>
-          <div className="flex items-end gap-[3px] h-32">
-            {activity.map(d => {
-              const heightPct = d.count > 0 ? Math.max(6, (d.count / maxActivity) * 100) : 2;
-              const isToday = d.key === todayKey;
-              return (
-                <div
-                  key={d.key}
-                  className="flex-1 flex flex-col justify-end group relative"
-                  title={`${d.date.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}: ${d.count}`}
-                >
-                  <div
-                    className={`w-full rounded-t transition-all ${
-                      isToday ? 'gradient-accent' : d.count > 0 ? 'gradient-primary' : 'bg-border'
-                    }`}
-                    style={{ height: `${heightPct}%` }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-          <div className="flex justify-between mt-2 text-[10px] text-muted-foreground">
-            <span>{activity[0].date.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}</span>
-            <span className="text-accent">vandaag</span>
-          </div>
-        </div>
-
         <ActivityHeatmap sessions={sessions} />
       </div>
 

@@ -2,8 +2,12 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, VolumeX, Volume2 } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
-import { getWordsForReview, calculateNextReview, markIntroduced, fuzzyMatch, fuzzyMatchWithAlternatives, generateMCOptions, pickExerciseType, adjustRatingBySpeed } from '@/lib/srs';
-import type { ReviewRating, ExerciseType } from '@/lib/srs';
+import {
+  buildSession, reviewCard, determineGrade, adjustGradeBySpeed,
+  emptyFsrsState, MODE_LABELS,
+} from '@/lib/fsrs';
+import type { FsrsMode, FsrsGrade, FsrsState, QueueItem } from '@/lib/fsrs';
+import { fuzzyMatch, fuzzyMatchWithAlternatives, generateMCOptions } from '@/lib/srs';
 import { Word } from '@/types/word';
 import { formatTranslations } from '@/lib/translation-utils';
 import { findSynonymOriginals } from '@/lib/synonyms';
@@ -12,39 +16,66 @@ import IntroCard from '@/components/study/IntroCard';
 import ProductionCard from '@/components/study/ProductionCard';
 import FlashcardCard from '@/components/study/FlashcardCard';
 import ListeningCard from '@/components/study/ListeningCard';
-import FillBlankCard from '@/components/study/FillBlankCard';
 
 type AnswerState = null | { result: 'correct' | 'almost' | 'wrong'; input: string };
 
-const EXERCISE_LABELS: Record<ExerciseType, string> = {
-  mc: 'Multiple Choice',
-  production: 'Productie',
-  listening: 'Luisteren',
-  fillblank: 'Zin aanvullen',
-  flashcard: 'Flashcard',
-};
+const MAX_SESSION = 20;
 
 export default function Study() {
   const navigate = useNavigate();
-  const { words, updateWord, updateStreak, addSession } = useStore();
+  const { words, fsrsStates, upsertFsrsState, addReviewLog, updateStreak, addSession } = useStore();
 
-  const [queue, setQueue] = useState<Word[]>(() => getWordsForReview(words));
-  const [initialized, setInitialized] = useState(false);
+  const today = new Date().toISOString().split('T')[0];
+
+  // ─── Bouw sessie-wachtrij ───────────────────────────────────────────────
+  const [queue, setQueue] = useState<(QueueItem & { word: Word })[]>([]);
+  const [initialized, setInitialized]   = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
+
+  useEffect(() => {
+    if (initialized || words.length === 0) return;
+
+    // Zorg dat elk woord een entry heeft, ook als er nog geen FSRS-state is.
+    // Woorden zonder state hebben dueDate=null en komen altijd in de queue.
+    const allCardStates: Record<string, Partial<Record<FsrsMode, FsrsState>>> = {};
+    for (const w of words) {
+      allCardStates[w.id] = fsrsStates[w.id] ?? {};
+    }
+
+    const wordMap = new Map(words.map(w => [w.id, w]));
+    const items   = buildSession(allCardStates, today, MAX_SESSION);
+
+    // Filter items waarvan het bijbehorende woord bestaat
+    const resolved = items
+      .map(item => {
+        const word = wordMap.get(item.cardId);
+        return word ? { ...item, word } : null;
+      })
+      .filter((x): x is QueueItem & { word: Word } => x !== null);
+
+    setQueue(resolved);
+    setInitialized(true);
+  }, [words, fsrsStates, initialized, today]);
+
+  // ─── UI-state ───────────────────────────────────────────────────────────
   const [answerState, setAnswerState] = useState<AnswerState>(null);
   const [typedAnswer, setTypedAnswer] = useState('');
-  const [selectedMC, setSelectedMC] = useState<string | null>(null);
+  const [selectedMC, setSelectedMC]   = useState<string | null>(null);
   const [sessionStats, setSessionStats] = useState({ correct: 0, incorrect: 0, startTime: Date.now() });
-  const totalWordsRef = useRef(0);
-  const expectedTotalRef = useRef(0);
-  const cardStartTimeRef = useRef(Date.now());
+
+  const cardStartTimeRef    = useRef(Date.now());
+  const currentIndexRef     = useRef(currentIndex);
+  const queueRef            = useRef(queue);
+  const sessionStatsRef     = useRef(sessionStats);
+  const totalWordsRef       = useRef(0);
+
+  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
+  useEffect(() => { queueRef.current        = queue;        }, [queue]);
+  useEffect(() => { sessionStatsRef.current = sessionStats; }, [sessionStats]);
 
   const [listeningMutedUntil, setListeningMutedUntil] = useState<number | null>(() => {
     const stored = sessionStorage.getItem('listeningMutedUntil');
-    if (stored) {
-      const val = parseInt(stored, 10);
-      return val > Date.now() ? val : null;
-    }
+    if (stored) { const v = parseInt(stored, 10); return v > Date.now() ? v : null; }
     return null;
   });
   const isListeningMuted = listeningMutedUntil !== null && listeningMutedUntil > Date.now();
@@ -60,67 +91,45 @@ export default function Study() {
     }
   }, [isListeningMuted]);
 
-  const currentIndexRef = useRef(currentIndex);
-  const queueRef = useRef(queue);
-  const sessionStatsRef = useRef(sessionStats);
-
-  useEffect(() => {
-    currentIndexRef.current = currentIndex;
-  }, [currentIndex]);
-
-  useEffect(() => {
-    queueRef.current = queue;
-  }, [queue]);
-
-  useEffect(() => {
-    sessionStatsRef.current = sessionStats;
-  }, [sessionStats]);
-
-  useEffect(() => {
-    if (!initialized && words.length > 0) {
-      const reviewWords = getWordsForReview(words);
-      setQueue(reviewWords);
-      const nc = reviewWords.filter(w => w.status === 'new').length;
-      expectedTotalRef.current = nc * 2 + (reviewWords.length - nc);
-      setInitialized(true);
-    }
-  }, [words, initialized]);
-
-  const currentWord = queue[currentIndex];
-
-  const getEffectiveExerciseType = useCallback((word: Word): ExerciseType => {
-    let type = pickExerciseType(word);
-    if (type === 'listening' && isListeningMuted) {
-      type = 'production';
-    }
-    return type;
+  // Als luisteren gedempt is, wijk dan uit naar typed_nl_it
+  const effectiveMode = useCallback((item: QueueItem & { word: Word }): FsrsMode => {
+    if (item.mode === 'listen_type' && isListeningMuted) return 'typed_nl_it';
+    return item.mode;
   }, [isListeningMuted]);
 
-  const exerciseType: ExerciseType = useMemo(() => {
-    if (!currentWord) return 'production';
-    return getEffectiveExerciseType(currentWord);
-  }, [currentWord, getEffectiveExerciseType]);
+  const currentItem = queue[currentIndex];
+  const mode: FsrsMode = currentItem ? effectiveMode(currentItem) : 'typed_nl_it';
 
   useEffect(() => {
-    if (currentWord) {
-      cardStartTimeRef.current = Date.now();
-    }
-  }, [currentWord?.id]);
+    if (currentItem) cardStartTimeRef.current = Date.now();
+  }, [currentItem?.cardId, mode]);
 
-  const progress = expectedTotalRef.current > 0 ? (currentIndex / expectedTotalRef.current) * 100 : 0;
+  const progress = queue.length > 0 ? (currentIndex / queue.length) * 100 : 0;
 
   const mcOptions = useMemo(() => {
-    if (!currentWord || exerciseType !== 'mc') return [];
-    return generateMCOptions(currentWord, words);
-  }, [currentWord?.id, exerciseType, words]);
+    if (!currentItem || mode !== 'mc') return [];
+    return generateMCOptions(currentItem.word, words);
+  }, [currentItem?.cardId, mode, words]);
 
-  // Italian synonyms (other words sharing a Dutch translation) — only used
-  // for production (NL → IT). Listening/fillblank target a specific spoken/
-  // written word, so synonyms aren't acceptable there.
   const synonymOriginals = useMemo(() => {
-    if (!currentWord) return [];
-    return findSynonymOriginals(currentWord, words);
-  }, [currentWord?.id, words]);
+    if (!currentItem) return [];
+    return findSynonymOriginals(currentItem.word, words);
+  }, [currentItem?.cardId, words]);
+
+  // ─── Helpers ────────────────────────────────────────────────────────────
+
+  /** Sla FSRS-state + log op na een review. */
+  const persistReview = useCallback(async (
+    item:  QueueItem & { word: Word },
+    grade: FsrsGrade,
+    usedMode: FsrsMode,
+  ) => {
+    const existing = fsrsStates[item.cardId]?.[usedMode] ?? emptyFsrsState();
+    const { newState, logPartial } = reviewCard(existing, grade, today);
+    await upsertFsrsState(item.cardId, usedMode, newState);
+    await addReviewLog({ ...logPartial, cardId: item.cardId, mode: usedMode });
+    await updateStreak();
+  }, [fsrsStates, today, upsertFsrsState, addReviewLog, updateStreak]);
 
   const moveToNext = useCallback(() => {
     setAnswerState(null);
@@ -128,7 +137,7 @@ export default function Study() {
     setSelectedMC(null);
 
     const idx = currentIndexRef.current;
-    const q = queueRef.current;
+    const q   = queueRef.current;
 
     if (idx < q.length - 1) {
       setCurrentIndex(prev => prev + 1);
@@ -137,100 +146,97 @@ export default function Study() {
 
     totalWordsRef.current = q.length;
     void addSession({
-      date: new Date().toISOString(),
+      date:         new Date().toISOString(),
       wordsStudied: q.length,
-      correct: sessionStatsRef.current.correct,
-      incorrect: sessionStatsRef.current.incorrect,
-      duration: Math.round((Date.now() - sessionStatsRef.current.startTime) / 1000),
+      correct:      sessionStatsRef.current.correct,
+      incorrect:    sessionStatsRef.current.incorrect,
+      duration:     Math.round((Date.now() - sessionStatsRef.current.startTime) / 1000),
     });
     setCurrentIndex(q.length);
   }, [addSession]);
 
-  // MC answer handler (for intro + fallback)
+  // ─── Antwoord-handlers ──────────────────────────────────────────────────
+
   const handleMCAnswer = useCallback((selected: string) => {
-    if (!currentWord || selectedMC !== null) return;
+    if (!currentItem || selectedMC !== null) return;
     setSelectedMC(selected);
 
     setTimeout(() => {
-      if (currentWord.status === 'new') {
-        const updates = markIntroduced(currentWord);
-        setQueue(prev => [...prev, { ...currentWord, ...updates } as Word]);
-        void updateWord(currentWord.id, updates);
-      } else {
-        const isCorrect = selected === formatTranslations(currentWord.translation);
-        const updates: Partial<Word> = { consecutiveErrors: isCorrect ? 0 : (currentWord.consecutiveErrors ?? 0) + 1 };
-        void updateWord(currentWord.id, updates);
-        setSessionStats(prev => ({
-          ...prev,
-          correct: isCorrect ? prev.correct + 1 : prev.correct,
-          incorrect: !isCorrect ? prev.incorrect + 1 : prev.incorrect,
-        }));
-      }
-      moveToNext();
-    }, 1200);
-  }, [currentWord, selectedMC, updateWord, moveToNext]);
+      const correct   = formatTranslations(currentItem.word.translation).replace(/\s*\([^)]+\)/g, '').trim();
+      const isCorrect = selected === correct;
+      const matchResult = isCorrect ? 'correct' : 'wrong';
+      const grade       = determineGrade('mc', matchResult);
 
-  // Typed answer handler (production, listening, fillblank)
-  const handleSubmitAnswer = useCallback(() => {
-    if (!currentWord || !typedAnswer.trim()) return;
-    const result = exerciseType === 'production'
-      ? fuzzyMatchWithAlternatives(typedAnswer, currentWord.original, synonymOriginals)
-      : fuzzyMatch(typedAnswer, currentWord.original);
-    setAnswerState({ result, input: typedAnswer });
-
-    const responseTimeMs = Date.now() - cardStartTimeRef.current;
-
-    const ratingMap: Record<string, ReviewRating> = {
-      correct: 'good',
-      almost: 'almost',
-      wrong: 'wrong',
-    };
-
-    setTimeout(() => {
-      const baseRating = ratingMap[result];
-      const rating = adjustRatingBySpeed(baseRating, responseTimeMs, currentWord);
-      const updates = calculateNextReview(currentWord, rating);
-      void updateWord(currentWord.id, updates);
-      void updateStreak();
+      void persistReview(currentItem, grade, 'mc');
       setSessionStats(prev => ({
         ...prev,
-        correct: result === 'correct' ? prev.correct + 1 : prev.correct,
-        incorrect: result !== 'correct' ? prev.incorrect + 1 : prev.incorrect,
+        correct:   isCorrect ? prev.correct + 1 : prev.correct,
+        incorrect: !isCorrect ? prev.incorrect + 1 : prev.incorrect,
+      }));
+      moveToNext();
+    }, 1200);
+  }, [currentItem, selectedMC, persistReview, moveToNext]);
+
+  const handleSubmitAnswer = useCallback(() => {
+    if (!currentItem || !typedAnswer.trim()) return;
+
+    const usedMode = effectiveMode(currentItem);
+    let matchResult: 'correct' | 'almost' | 'wrong';
+
+    if (usedMode === 'typed_nl_it') {
+      // NL → IT: accepteer ook synoniemen
+      matchResult = fuzzyMatchWithAlternatives(typedAnswer, currentItem.word.original, synonymOriginals);
+    } else if (usedMode === 'typed_it_nl') {
+      // IT → NL
+      matchResult = fuzzyMatch(typedAnswer, currentItem.word.translation);
+    } else {
+      // listen_type / fill_blank: exacte IT-spelling
+      matchResult = fuzzyMatch(typedAnswer, currentItem.word.original);
+    }
+
+    setAnswerState({ result: matchResult, input: typedAnswer });
+    const responseMs = Date.now() - cardStartTimeRef.current;
+
+    setTimeout(() => {
+      let grade = determineGrade(usedMode, matchResult);
+      grade = adjustGradeBySpeed(grade, usedMode, responseMs, currentItem.word.original.length);
+
+      void persistReview(currentItem, grade, usedMode);
+      setSessionStats(prev => ({
+        ...prev,
+        correct:   matchResult === 'correct' ? prev.correct + 1 : prev.correct,
+        incorrect: matchResult !== 'correct' ? prev.incorrect + 1 : prev.incorrect,
       }));
       moveToNext();
     }, 1500);
-  }, [currentWord, typedAnswer, exerciseType, synonymOriginals, updateWord, updateStreak, moveToNext]);
+  }, [currentItem, typedAnswer, effectiveMode, synonymOriginals, persistReview, moveToNext]);
 
-  // Skip handler
   const handleSkip = useCallback(() => {
-    if (!currentWord) return;
+    if (!currentItem) return;
     setAnswerState({ result: 'wrong', input: '' });
 
     setTimeout(() => {
-      const updates = calculateNextReview(currentWord, 'wrong');
-      void updateWord(currentWord.id, updates);
-      void updateStreak();
+      const usedMode = effectiveMode(currentItem);
+      void persistReview(currentItem, 1 /* FORGOT */, usedMode);
       setSessionStats(prev => ({ ...prev, incorrect: prev.incorrect + 1 }));
       moveToNext();
     }, 1500);
-  }, [currentWord, updateWord, updateStreak, moveToNext]);
+  }, [currentItem, effectiveMode, persistReview, moveToNext]);
 
-  // Flashcard self-rate handler
-  const handleFlashcardRate = useCallback((rating: ReviewRating) => {
-    if (!currentWord) return;
-    const updates = calculateNextReview(currentWord, rating);
-    void updateWord(currentWord.id, updates);
-    void updateStreak();
+  const handleFlashcardRate = useCallback((grade: FsrsGrade) => {
+    if (!currentItem) return;
+    void persistReview(currentItem, grade, 'self_assess');
     setSessionStats(prev => ({
       ...prev,
-      correct: (rating === 'good' || rating === 'easy') ? prev.correct + 1 : prev.correct,
-      incorrect: (rating !== 'good' && rating !== 'easy') ? prev.incorrect + 1 : prev.incorrect,
+      correct:   grade >= 3 ? prev.correct + 1 : prev.correct,
+      incorrect: grade <  3 ? prev.incorrect + 1 : prev.incorrect,
     }));
     moveToNext();
-  }, [currentWord, updateWord, updateStreak, moveToNext]);
+  }, [currentItem, persistReview, moveToNext]);
 
-  // Empty state
-  if (queue.length === 0) {
+  // ─── Leeg / klaar ──────────────────────────────────────────────────────
+
+  if (initialized && queue.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center animate-slide-up">
         <div className="text-6xl mb-4">🎉</div>
@@ -243,8 +249,7 @@ export default function Study() {
     );
   }
 
-  // Session complete
-  if (currentIndex >= queue.length) {
+  if (currentIndex >= queue.length && queue.length > 0) {
     const totalTime = Math.round((Date.now() - sessionStats.startTime) / 1000);
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center animate-slide-up">
@@ -271,6 +276,12 @@ export default function Study() {
     );
   }
 
+  if (!currentItem) return null;
+
+  // ─── Render oefening ────────────────────────────────────────────────────
+
+  const modeLabel = MODE_LABELS[mode];
+
   return (
     <div className="max-w-lg mx-auto animate-slide-up">
       <div className="flex items-center justify-between mb-4">
@@ -286,24 +297,25 @@ export default function Study() {
             {isListeningMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
           </button>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-2 py-0.5 rounded-full bg-secondary">
-            {EXERCISE_LABELS[exerciseType]}
+            {modeLabel}
           </span>
           <span className="text-lg font-bold text-foreground">{currentIndex + 1}</span>
-          <span className="text-muted-foreground"> / {expectedTotalRef.current}</span>
+          <span className="text-muted-foreground"> / {queue.length}</span>
         </div>
       </div>
       <Progress value={progress} className="h-1.5 mb-6 bg-border" />
 
-      {exerciseType === 'mc' ? (
+      {mode === 'mc' ? (
         <IntroCard
-          word={currentWord}
+          word={currentItem.word}
           options={mcOptions}
           selected={selectedMC}
           onSelect={handleMCAnswer}
         />
-      ) : exerciseType === 'production' ? (
+      ) : mode === 'typed_nl_it' ? (
         <ProductionCard
-          word={currentWord}
+          word={currentItem.word}
+          direction="nl_it"
           typedAnswer={typedAnswer}
           onTypeAnswer={setTypedAnswer}
           answerState={answerState}
@@ -311,30 +323,33 @@ export default function Study() {
           onSkip={handleSkip}
           alternatives={synonymOriginals}
         />
-      ) : exerciseType === 'listening' ? (
+      ) : mode === 'typed_it_nl' ? (
+        <ProductionCard
+          word={currentItem.word}
+          direction="it_nl"
+          typedAnswer={typedAnswer}
+          onTypeAnswer={setTypedAnswer}
+          answerState={answerState}
+          onSubmit={handleSubmitAnswer}
+          onSkip={handleSkip}
+        />
+      ) : mode === 'listen_type' ? (
         <ListeningCard
-          word={currentWord}
+          word={currentItem.word}
           typedAnswer={typedAnswer}
           onTypeAnswer={setTypedAnswer}
           answerState={answerState}
           onSubmit={handleSubmitAnswer}
           onSkip={handleSkip}
         />
-      ) : exerciseType === 'fillblank' ? (
-        <FillBlankCard
-          word={currentWord}
-          typedAnswer={typedAnswer}
-          onTypeAnswer={setTypedAnswer}
-          answerState={answerState}
-          onSubmit={handleSubmitAnswer}
-          onSkip={handleSkip}
-        />
-      ) : (
+      ) : mode === 'self_assess' ? (
         <FlashcardCard
-          word={currentWord}
+          word={currentItem.word}
+          fsrsState={fsrsStates[currentItem.cardId]?.['self_assess'] ?? emptyFsrsState()}
+          today={today}
           onRate={handleFlashcardRate}
         />
-      )}
+      ) : null}
     </div>
   );
 }

@@ -7,17 +7,17 @@ export interface Word {
   partOfSpeech?: string;
   exampleSentence?: string;
   notes?: string;
-  // SRS fields
-  easeFactor: number; // SM-2 ease factor (default 2.5)
-  interval: number; // days until next review
-  repetitions: number; // consecutive correct answers
-  nextReview: string; // ISO date
+  // SM-2 velden (legacy, niet meer gebruikt voor planning)
+  easeFactor: number;
+  interval: number;
+  repetitions: number;
+  nextReview: string;
   lastReview?: string;
   // Meta
   createdAt: string;
   status: 'new' | 'learning' | 'review' | 'stable';
   autoTranslated: boolean;
-  consecutiveErrors: number; // track repeated wrong answers for fallback
+  consecutiveErrors: number;
 }
 
 export interface StudySession {

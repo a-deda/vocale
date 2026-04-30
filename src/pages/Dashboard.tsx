@@ -48,12 +48,24 @@ export default function Dashboard() {
 
   const { greeting, session } = getDayPart(new Date().getHours());
   const dueWords = getWordsForReview(words);
-  const todayLearned = words.filter(w => {
-    if (!w.lastReview) return false;
-    return new Date(w.lastReview).toDateString() === new Date().toDateString();
-  }).length;
-  const today = new Date().toISOString().split('T')[0];
-  const studiedToday = stats.lastStudyDate === today || todayLearned > 0;
+
+  // Gebruik lokale datum (niet UTC) zodat het klopt voor gebruikers in UTC+1/+2
+  const localToday = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+
+  // Woorden gereviewd vandaag (lokale datum)
+  const todayLearned = sessions
+    .filter(s => {
+      const d = new Date(s.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return key === localToday;
+    })
+    .reduce((sum, s) => sum + s.wordsStudied, 0);
+
+  // Alleen 'vandaag voltooid' als lastStudyDate écht vandaag is
+  const studiedToday = stats.lastStudyDate === localToday;
   const progressPercent = stats.dailyGoal > 0 ? Math.min(100, Math.round((todayLearned / stats.dailyGoal) * 100)) : 0;
   const avgMastery = words.length > 0 ? Math.round(words.reduce((sum, w) => sum + getMasteryScore(w), 0) / words.length) : 0;
 

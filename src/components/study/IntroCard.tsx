@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Word } from '@/types/word';
-import { formatTranslations } from '@/lib/translation-utils';
+import { formatTranslations, formatTranslationsClean } from '@/lib/translation-utils';
+import AnnotationTags from './AnnotationTags';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 interface IntroCardProps {
@@ -44,7 +45,10 @@ export default function IntroCard({ word, options, selected, onSelect }: IntroCa
         </span>
         <h2 className="text-4xl font-bold text-foreground mt-3">{word.original}</h2>
         {selected !== null && (
-          <p className="text-lg text-muted-foreground mt-3">{formatTranslations(word.translation)}</p>
+          <div className="mt-3">
+            <p className="text-lg text-muted-foreground">{formatTranslationsClean(word.translation)}</p>
+            <AnnotationTags text={word.translation} />
+          </div>
         )}
       </div>
 
@@ -53,7 +57,7 @@ export default function IntroCard({ word, options, selected, onSelect }: IntroCa
         <div className="grid grid-cols-1 gap-2.5">
           {options.map((opt, i) => {
             const isThis = selected === opt;
-            const isRight = opt === formatTranslations(word.translation);
+            const isRight = opt === formatTranslations(word.translation).replace(/\s*\([^)]+\)/g, '').trim();
             let style = 'bg-card border-border hover:border-primary/40';
             if (selected !== null) {
               if (isRight) style = 'bg-success/10 border-success/50 text-success';
