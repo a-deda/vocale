@@ -209,8 +209,10 @@ export function useWordStore() {
     mode:   FsrsMode,
     state:  FsrsState,
   ) => {
+    if (!userId) return;
     const row = {
       card_id:          cardId,
+      user_id:          userId,
       mode,
       stability:        state.stability,
       difficulty:       state.difficulty,
@@ -231,12 +233,14 @@ export function useWordStore() {
       ...prev,
       [cardId]: { ...(prev[cardId] ?? {}), [mode]: state },
     }));
-  }, [toast]);
+  }, [userId, toast]);
 
   /** Schrijf een FSRS review-log naar de database. */
   const addReviewLog = useCallback(async (log: FsrsReviewLog) => {
-    await supabase.from('review_logs').insert({
+    if (!userId) return;
+    const { error } = await supabase.from('review_logs').insert({
       card_id:       log.cardId,
+      user_id:       userId,
       mode:          log.mode,
       grade:         log.grade,
       r_at_review:   log.rAtReview,
@@ -247,8 +251,8 @@ export function useWordStore() {
       interval_days: log.intervalDays,
       reviewed_at:   log.reviewedAt,
     });
-    // Fouten in review_logs zijn niet kritiek — geen toast nodig
-  }, []);
+    if (error) console.error('Review log opslaan mislukt:', error.message);
+  }, [userId]);
 
   const updateStats = useCallback(async (updates: Partial<UserStats>) => {
     if (!userId) return;
