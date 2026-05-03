@@ -70,5 +70,9 @@ CREATE POLICY "insert own review logs" ON review_logs FOR INSERT
     AND words.user_id = auth.uid()::text
   ));
 
+-- Basisrechten voor authenticated gebruikers (vereist naast RLS)
+GRANT SELECT, INSERT, UPDATE, DELETE ON card_fsrs_states TO authenticated;
+GRANT SELECT, INSERT ON review_logs TO authenticated;
+
 -- Index voor snelle sessie-opbouw
 CREATE INDEX idx_card_fsrs_states_due ON card_fsrs_states (due_date) WHERE due_date IS NOT NULL;
