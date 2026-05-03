@@ -206,11 +206,11 @@ export function adjustGradeBySpeed(
 // ─── SESSIE OPBOUWEN ─────────────────────────────────────────────────────────
 
 const PRIORITY: FsrsMode[] = [
-  'typed_it_nl',   // herkenning eerst voor nieuwe woorden
-  'typed_nl_it',   // productie zodra woord bekend is
-  'listen_type',
-  'self_assess',
-  'mc',
+  'mc',          // stap 1: herkenning via meerkeuze
+  'self_assess', // stap 2: vrije herinnering (flashcard, geen typen)
+  'listen_type', // stap 3: audio + typen
+  'typed_it_nl', // stap 4: lezen + typen (herkenning)
+  'typed_nl_it', // stap 5: productie (zwaarst)
 ];
 
 export function buildSession(
