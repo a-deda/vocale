@@ -11,17 +11,33 @@ CREATE TABLE card_fsrs_states (
 
 ALTER TABLE card_fsrs_states ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "select own fsrs states"  ON card_fsrs_states FOR SELECT
-  USING (card_id IN (SELECT id FROM words WHERE user_id = auth.uid()::text));
+CREATE POLICY "select own fsrs states" ON card_fsrs_states FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM words
+    WHERE words.id = card_fsrs_states.card_id
+    AND words.user_id = auth.uid()::text
+  ));
 
-CREATE POLICY "insert own fsrs states"  ON card_fsrs_states FOR INSERT
-  WITH CHECK (card_id IN (SELECT id FROM words WHERE user_id = auth.uid()));
+CREATE POLICY "insert own fsrs states" ON card_fsrs_states FOR INSERT
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM words
+    WHERE words.id = card_fsrs_states.card_id
+    AND words.user_id = auth.uid()::text
+  ));
 
-CREATE POLICY "update own fsrs states"  ON card_fsrs_states FOR UPDATE
-  USING (card_id IN (SELECT id FROM words WHERE user_id = auth.uid()::text));
+CREATE POLICY "update own fsrs states" ON card_fsrs_states FOR UPDATE
+  USING (EXISTS (
+    SELECT 1 FROM words
+    WHERE words.id = card_fsrs_states.card_id
+    AND words.user_id = auth.uid()::text
+  ));
 
-CREATE POLICY "delete own fsrs states"  ON card_fsrs_states FOR DELETE
-  USING (card_id IN (SELECT id FROM words WHERE user_id = auth.uid()::text));
+CREATE POLICY "delete own fsrs states" ON card_fsrs_states FOR DELETE
+  USING (EXISTS (
+    SELECT 1 FROM words
+    WHERE words.id = card_fsrs_states.card_id
+    AND words.user_id = auth.uid()::text
+  ));
 
 -- review_logs: audit-trail van elke FSRS-review
 CREATE TABLE review_logs (
@@ -40,11 +56,19 @@ CREATE TABLE review_logs (
 
 ALTER TABLE review_logs ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "select own review logs"  ON review_logs FOR SELECT
-  USING (card_id IN (SELECT id FROM words WHERE user_id = auth.uid()::text));
+CREATE POLICY "select own review logs" ON review_logs FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM words
+    WHERE words.id = review_logs.card_id
+    AND words.user_id = auth.uid()::text
+  ));
 
-CREATE POLICY "insert own review logs"  ON review_logs FOR INSERT
-  WITH CHECK (card_id IN (SELECT id FROM words WHERE user_id = auth.uid()));
+CREATE POLICY "insert own review logs" ON review_logs FOR INSERT
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM words
+    WHERE words.id = review_logs.card_id
+    AND words.user_id = auth.uid()::text
+  ));
 
 -- Index voor snelle sessie-opbouw
 CREATE INDEX idx_card_fsrs_states_due ON card_fsrs_states (due_date) WHERE due_date IS NOT NULL;
