@@ -206,8 +206,8 @@ export function adjustGradeBySpeed(
 // ─── SESSIE OPBOUWEN ─────────────────────────────────────────────────────────
 
 const PRIORITY: FsrsMode[] = [
-  'typed_nl_it',
-  'typed_it_nl',
+  'typed_it_nl',   // herkenning eerst voor nieuwe woorden
+  'typed_nl_it',   // productie zodra woord bekend is
   'listen_type',
   'self_assess',
   'mc',
@@ -218,7 +218,8 @@ export function buildSession(
   today: string,
   maxReviews: number,
 ): QueueItem[] {
-  const queue: QueueItem[] = [];
+  const reviewed: QueueItem[] = [];
+  const newCards: QueueItem[] = [];
 
   for (const cardId of Object.keys(cardStates)) {
     const states   = cardStates[cardId];
@@ -230,18 +231,25 @@ export function buildSession(
 
     const chosenMode = PRIORITY.find(m => dueModes.includes(m))!;
     const s = states?.[chosenMode];
-    queue.push({ cardId, mode: chosenMode, dueDate: s?.dueDate ?? null });
+    const item: QueueItem = { cardId, mode: chosenMode, dueDate: s?.dueDate ?? null };
+
+    if (item.dueDate === null) {
+      newCards.push(item);
+    } else {
+      reviewed.push(item);
+    }
   }
 
-  // Nieuwste kaarten (dueDate === null) komen eerst, daarna oplopend op datum
-  queue.sort((a, b) => {
-    if (a.dueDate === null && b.dueDate === null) return 0;
-    if (a.dueDate === null) return -1;
-    if (b.dueDate === null) return 1;
-    return a.dueDate.localeCompare(b.dueDate);
-  });
+  // Achterstallige kaarten: meest achterstallig eerst
+  reviewed.sort((a, b) => a.dueDate!.localeCompare(b.dueDate!));
 
-  return queue.slice(0, maxReviews);
+  // Nieuwe kaarten: willekeurige volgorde elke sessie
+  for (let i = newCards.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newCards[i], newCards[j]] = [newCards[j], newCards[i]];
+  }
+
+  return [...reviewed, ...newCards].slice(0, maxReviews);
 }
 
 // ─── MASTERY SCORE VANUIT FSRS ────────────────────────────────────────────────
