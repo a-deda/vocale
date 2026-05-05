@@ -206,10 +206,9 @@ export function adjustGradeBySpeed(
 // ─── SESSIE OPBOUWEN ─────────────────────────────────────────────────────────
 
 const PRIORITY: FsrsMode[] = [
-  'mc',          // stap 1: herkenning via meerkeuze
-  'self_assess', // stap 2: vrije herinnering (flashcard, geen typen)
-  'listen_type', // stap 3: audio + typen
-  'typed_nl_it', // stap 4: productie (zwaarst)
+  'listen_type', // stap 1: eerste kennismaking via audio
+  'mc',          // stap 2: herkenning via meerkeuze
+  'typed_nl_it', // stap 3: productie (zwaarst)
 ];
 
 export function buildSession(
@@ -217,38 +216,81 @@ export function buildSession(
   today: string,
   maxReviews: number,
 ): QueueItem[] {
-  const reviewed: QueueItem[] = [];
-  const newCards: QueueItem[] = [];
+  const dueItems:   QueueItem[] = [];
+  const newCardIds: string[]    = [];
 
   for (const cardId of Object.keys(cardStates)) {
-    const states   = cardStates[cardId];
-    const dueModes = FSRS_MODES.filter(mode => {
-      const s = states?.[mode];
-      return !s || s.dueDate === null || s.dueDate <= today;
-    });
-    if (dueModes.length === 0) continue;
+    const states = cardStates[cardId];
+    const isNew  = !PRIORITY.some(m => states?.[m] != null);
 
-    const chosenMode = PRIORITY.find(m => dueModes.includes(m))!;
-    const s = states?.[chosenMode];
-    const item: QueueItem = { cardId, mode: chosenMode, dueDate: s?.dueDate ?? null };
-
-    if (item.dueDate === null) {
-      newCards.push(item);
+    if (isNew) {
+      newCardIds.push(cardId);
     } else {
-      reviewed.push(item);
+      const chosenMode = PRIORITY.find(m => {
+        const s = states?.[m];
+        return !s || s.dueDate === null || s.dueDate <= today;
+      });
+      if (!chosenMode) continue;
+      const s = states?.[chosenMode];
+      dueItems.push({ cardId, mode: chosenMode, dueDate: s?.dueDate ?? null });
     }
   }
 
-  // Achterstallige kaarten: meest achterstallig eerst
-  reviewed.sort((a, b) => a.dueDate!.localeCompare(b.dueDate!));
+  // Echte reviews (dueDate <= today) vóór in-progress (dueDate = null)
+  dueItems.sort((a, b) => {
+    if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+    if (a.dueDate) return -1;
+    if (b.dueDate) return 1;
+    return 0;
+  });
 
-  // Nieuwe kaarten: willekeurige volgorde elke sessie
-  for (let i = newCards.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [newCards[i], newCards[j]] = [newCards[j], newCards[i]];
+  const reviewSlots  = Math.min(dueItems.length, maxReviews);
+  const freeSlots    = maxReviews - reviewSlots;
+  const newWordCount = Math.floor(freeSlots / PRIORITY.length);
+
+  fisherYates(newCardIds);
+  const selected = newCardIds.slice(0, newWordCount);
+
+  return randomTopoSort(dueItems.slice(0, reviewSlots), selected);
+}
+
+type PendingNode = { item: QueueItem; next: PendingNode | null };
+
+function randomTopoSort(dueItems: QueueItem[], newIds: string[]): QueueItem[] {
+  const available: QueueItem[]           = [...dueItems];
+  const pendingMap = new Map<string, PendingNode>();
+
+  for (const cardId of newIds) {
+    let chain: PendingNode | null = null;
+    for (let i = PRIORITY.length - 1; i >= 0; i--) {
+      chain = { item: { cardId, mode: PRIORITY[i], dueDate: null }, next: chain };
+    }
+    available.push(chain!.item);
+    if (chain!.next) pendingMap.set(cardId, chain!.next);
   }
 
-  return [...reviewed, ...newCards].slice(0, maxReviews);
+  const result: QueueItem[] = [];
+  while (available.length > 0) {
+    const idx  = Math.floor(Math.random() * available.length);
+    const item = available.splice(idx, 1)[0];
+    result.push(item);
+
+    const next = pendingMap.get(item.cardId);
+    if (next) {
+      available.push(next.item);
+      if (next.next) pendingMap.set(item.cardId, next.next);
+      else           pendingMap.delete(item.cardId);
+    }
+  }
+
+  return result;
+}
+
+function fisherYates<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
 }
 
 // ─── MASTERY SCORE VANUIT FSRS ────────────────────────────────────────────────
