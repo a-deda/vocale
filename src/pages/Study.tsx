@@ -91,9 +91,9 @@ export default function Study() {
     }
   }, [isListeningMuted]);
 
-  // Als luisteren gedempt is, wijk dan uit naar typed_nl_it
+  // Als luisteren gedempt is, wijk dan uit naar mc (niet typen)
   const effectiveMode = useCallback((item: QueueItem & { word: Word }): FsrsMode => {
-    if (item.mode === 'listen_type' && isListeningMuted) return 'typed_nl_it';
+    if (item.mode === 'listen_type' && isListeningMuted) return 'mc';
     return item.mode;
   }, [isListeningMuted]);
 
@@ -167,7 +167,7 @@ export default function Study() {
       const matchResult = isCorrect ? 'correct' : 'wrong';
       const grade       = determineGrade('mc', matchResult);
 
-      void persistReview(currentItem, grade, 'mc');
+      void persistReview(currentItem, grade, currentItem.mode);
       setSessionStats(prev => ({
         ...prev,
         correct:   isCorrect ? prev.correct + 1 : prev.correct,
@@ -216,12 +216,11 @@ export default function Study() {
     setAnswerState({ result: 'wrong', input: '' });
 
     setTimeout(() => {
-      const usedMode = effectiveMode(currentItem);
-      void persistReview(currentItem, 1 /* FORGOT */, usedMode);
+      void persistReview(currentItem, 1 /* FORGOT */, currentItem.mode);
       setSessionStats(prev => ({ ...prev, incorrect: prev.incorrect + 1 }));
       moveToNext();
     }, 1500);
-  }, [currentItem, effectiveMode, persistReview, moveToNext]);
+  }, [currentItem, persistReview, moveToNext]);
 
   const handleFlashcardRate = useCallback((grade: FsrsGrade) => {
     if (!currentItem) return;
