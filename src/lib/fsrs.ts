@@ -211,79 +211,56 @@ const PRIORITY: FsrsMode[] = [
   'typed_nl_it', // stap 3: productie (zwaarst)
 ];
 
+const MAX_NEW_LISTEN = 7;
+
 export function buildSession(
   cardStates: Record<string, Partial<Record<FsrsMode, FsrsState>>>,
   today: string,
   maxReviews: number,
 ): QueueItem[] {
-  const dueItems:   QueueItem[] = [];
-  const newCardIds: string[]    = [];
+  const overdue:   QueueItem[] = [];
+  const listenNew: QueueItem[] = [];
+  const mcNew:     QueueItem[] = [];
+  const typedNew:  QueueItem[] = [];
 
   for (const cardId of Object.keys(cardStates)) {
     const states = cardStates[cardId];
-    const isNew  = !PRIORITY.some(m => states?.[m] != null);
-
-    if (isNew) {
-      newCardIds.push(cardId);
-    } else {
-      const chosenMode = PRIORITY.find(m => {
-        const s = states?.[m];
-        return !s || s.dueDate === null || s.dueDate <= today;
-      });
-      if (!chosenMode) continue;
-      const s = states?.[chosenMode];
-      dueItems.push({ cardId, mode: chosenMode, dueDate: s?.dueDate ?? null });
+    for (const mode of PRIORITY) {
+      const s = states?.[mode];
+      if (!s) {
+        if (mode === 'listen_type') listenNew.push({ cardId, mode, dueDate: null });
+        else if (mode === 'mc')     mcNew.push({ cardId, mode, dueDate: null });
+        else                        typedNew.push({ cardId, mode, dueDate: null });
+        break;
+      }
+      if (s.dueDate && s.dueDate <= today) {
+        overdue.push({ cardId, mode, dueDate: s.dueDate });
+        break;
+      }
+      // Gedaan maar nog niet due → probeer volgende mode
     }
   }
 
-  // Echte reviews (dueDate <= today) vóór in-progress (dueDate = null)
-  dueItems.sort((a, b) => {
-    if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
-    if (a.dueDate) return -1;
-    if (b.dueDate) return 1;
-    return 0;
-  });
+  overdue.sort((a, b) => a.dueDate!.localeCompare(b.dueDate!));
 
-  const reviewSlots  = Math.min(dueItems.length, maxReviews);
-  const freeSlots    = maxReviews - reviewSlots;
-  const newWordCount = Math.floor(freeSlots / PRIORITY.length);
+  fisherYates(listenNew);
+  fisherYates(mcNew);
+  fisherYates(typedNew);
 
-  fisherYates(newCardIds);
-  const selected = newCardIds.slice(0, newWordCount);
+  const freeSlots    = Math.max(0, maxReviews - overdue.length);
+  const cappedListen = listenNew.slice(0, MAX_NEW_LISTEN);
+  const pools        = [cappedListen, mcNew, typedNew].filter(p => p.length > 0);
 
-  return randomTopoSort(dueItems.slice(0, reviewSlots), selected);
-}
-
-type PendingNode = { item: QueueItem; next: PendingNode | null };
-
-function randomTopoSort(dueItems: QueueItem[], newIds: string[]): QueueItem[] {
-  const available: QueueItem[]           = [...dueItems];
-  const pendingMap = new Map<string, PendingNode>();
-
-  for (const cardId of newIds) {
-    let chain: PendingNode | null = null;
-    for (let i = PRIORITY.length - 1; i >= 0; i--) {
-      chain = { item: { cardId, mode: PRIORITY[i], dueDate: null }, next: chain };
-    }
-    available.push(chain!.item);
-    if (chain!.next) pendingMap.set(cardId, chain!.next);
+  const pool: QueueItem[] = [];
+  let i = 0;
+  while (pool.length < freeSlots && pools.some(p => p.length > 0)) {
+    const p = pools[i % pools.length];
+    if (p.length > 0) pool.push(p.shift()!);
+    i++;
   }
 
-  const result: QueueItem[] = [];
-  while (available.length > 0) {
-    const idx  = Math.floor(Math.random() * available.length);
-    const item = available.splice(idx, 1)[0];
-    result.push(item);
-
-    const next = pendingMap.get(item.cardId);
-    if (next) {
-      available.push(next.item);
-      if (next.next) pendingMap.set(item.cardId, next.next);
-      else           pendingMap.delete(item.cardId);
-    }
-  }
-
-  return result;
+  fisherYates(pool);
+  return [...overdue, ...pool];
 }
 
 function fisherYates<T>(arr: T[]): void {
