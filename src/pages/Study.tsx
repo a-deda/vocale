@@ -19,12 +19,11 @@ import ListeningCard from '@/components/study/ListeningCard';
 
 type AnswerState = null | { result: 'correct' | 'almost' | 'wrong'; input: string };
 
-const MAX_SESSION  = 20;
 const MIN_SPACING  = 3; // minimaal aantal kaarten tussen MC en typed-herhaling
 
 export default function Study() {
   const navigate = useNavigate();
-  const { words, fsrsStates, upsertFsrsState, addReviewLog, updateStreak, addSession } = useStore();
+  const { words, fsrsStates, upsertFsrsState, addReviewLog, updateStreak, addSession, stats } = useStore();
 
   const today = (() => {
     const d = new Date();
@@ -47,7 +46,7 @@ export default function Study() {
     }
 
     const wordMap = new Map(words.map(w => [w.id, w]));
-    const items   = buildSession(allCardStates, today, MAX_SESSION);
+    const items   = buildSession(allCardStates, today, stats.dailyGoal);
 
     // Filter items waarvan het bijbehorende woord bestaat
     const resolved = items
@@ -56,6 +55,12 @@ export default function Study() {
         return word ? { ...item, word } : null;
       })
       .filter((x): x is QueueItem & { word: Word } => x !== null);
+
+    // Schud de wachtrij zodat MC, typed en listen_type door elkaar staan
+    for (let i = resolved.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [resolved[i], resolved[j]] = [resolved[j], resolved[i]];
+    }
 
     setQueue(resolved);
     setInitialized(true);
@@ -74,6 +79,7 @@ export default function Study() {
   const queueRef            = useRef(queue);
   const sessionStatsRef     = useRef(sessionStats);
   const pendingPoolRef      = useRef(pendingPool);
+  const retriedCardsRef     = useRef(new Set<string>());
   const totalWordsRef       = useRef(0);
 
   useEffect(() => { currentIndexRef.current = currentIndex;  }, [currentIndex]);
@@ -148,17 +154,19 @@ export default function Study() {
     let   q    = queueRef.current;
     const pool = pendingPoolRef.current;
 
-    // Inject pending items die lang genoeg gewacht hebben (≥ MIN_SPACING kaarten geleden toegevoegd)
-    const atEnd       = idx >= q.length - 1;
-    const toInject    = pool.filter(p => atEnd || idx - p.addedAtIndex >= MIN_SPACING);
-    const stillWaiting = pool.filter(p => !atEnd && idx - p.addedAtIndex < MIN_SPACING);
-    if (toInject.length > 0) {
-      const newQueue = [...q];
-      toInject.forEach((p, i) => newQueue.splice(idx + 1 + i, 0, p.item));
+    // Injecteer één pending item als het lang genoeg gewacht heeft (≥ MIN_SPACING kaarten)
+    const atEnd     = idx >= q.length - 1;
+    const readyItem = pool.find(p => atEnd || idx - p.addedAtIndex >= MIN_SPACING);
+    if (readyItem) {
+      const remaining = q.length - 1 - idx;
+      const offset    = 1 + (remaining > 1 ? Math.floor(Math.random() * Math.min(3, remaining)) : 0);
+      const newQueue  = [...q];
+      newQueue.splice(idx + offset, 0, readyItem.item);
+      const newPool = pool.filter(p => p !== readyItem);
       queueRef.current       = newQueue;
-      pendingPoolRef.current = stillWaiting;
+      pendingPoolRef.current = newPool;
       setQueue(newQueue);
-      setPendingPool(stillWaiting);
+      setPendingPool(newPool);
       q = newQueue;
     }
 
@@ -242,6 +250,16 @@ export default function Study() {
         correct:   matchResult === 'correct' ? prev.correct + 1 : prev.correct,
         incorrect: matchResult !== 'correct' ? prev.incorrect + 1 : prev.incorrect,
       }));
+
+      // Bij fout: één herkansing later in de sessie
+      const retryKey = currentItem.cardId + usedMode;
+      if (matchResult === 'wrong' && !retriedCardsRef.current.has(retryKey)) {
+        retriedCardsRef.current.add(retryKey);
+        const entry = { item: currentItem, addedAtIndex: currentIndexRef.current };
+        pendingPoolRef.current = [...pendingPoolRef.current, entry];
+        setPendingPool(prev => [...prev, entry]);
+      }
+
       moveToNext();
     }, 1500);
   }, [currentItem, typedAnswer, effectiveMode, synonymOriginals, persistReview, moveToNext]);
