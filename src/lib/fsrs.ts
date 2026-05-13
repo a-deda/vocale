@@ -176,7 +176,7 @@ export function determineGrade(
   selfRating?: FsrsGrade,
 ): FsrsGrade {
   if (mode === 'mc') {
-    return matchResult === 'correct' ? GRADE.HARD : GRADE.FORGOT;
+    return matchResult === 'correct' ? GRADE.GOOD : GRADE.FORGOT;
   }
   if (mode === 'self_assess') {
     return selfRating ?? GRADE.GOOD;
