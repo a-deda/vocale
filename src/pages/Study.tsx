@@ -67,7 +67,7 @@ export default function Study() {
   const [selectedMC, setSelectedMC]   = useState<string | null>(null);
   const [sessionStats, setSessionStats] = useState({ correct: 0, incorrect: 0, startTime: Date.now() });
 
-  const [pendingPool, setPendingPool] = useState<(QueueItem & { word: Word })[]>([]);
+  const [pendingPool, setPendingPool] = useState<{ item: QueueItem & { word: Word }; addedAtIndex: number }[]>([]);
 
   const cardStartTimeRef    = useRef(Date.now());
   const currentIndexRef     = useRef(currentIndex);
@@ -148,15 +148,17 @@ export default function Study() {
     let   q    = queueRef.current;
     const pool = pendingPoolRef.current;
 
-    // Inject het eerste pending item als er nog maar MIN_SPACING kaarten over zijn
-    if (pool.length > 0 && (q.length - 1 - idx) <= MIN_SPACING) {
-      const [next, ...rest] = pool;
+    // Inject pending items die lang genoeg gewacht hebben (≥ MIN_SPACING kaarten geleden toegevoegd)
+    const atEnd       = idx >= q.length - 1;
+    const toInject    = pool.filter(p => atEnd || idx - p.addedAtIndex >= MIN_SPACING);
+    const stillWaiting = pool.filter(p => !atEnd && idx - p.addedAtIndex < MIN_SPACING);
+    if (toInject.length > 0) {
       const newQueue = [...q];
-      newQueue.splice(idx + 1, 0, next);
-      queueRef.current    = newQueue;
-      pendingPoolRef.current = rest;
+      toInject.forEach((p, i) => newQueue.splice(idx + 1 + i, 0, p.item));
+      queueRef.current       = newQueue;
+      pendingPoolRef.current = stillWaiting;
       setQueue(newQueue);
-      setPendingPool(rest);
+      setPendingPool(stillWaiting);
       q = newQueue;
     }
 
@@ -195,8 +197,9 @@ export default function Study() {
           dueDate: null,
           word:    currentItem.word,
         };
-        pendingPoolRef.current = [...pendingPoolRef.current, typedItem];
-        setPendingPool(prev => [...prev, typedItem]);
+        const entry = { item: typedItem, addedAtIndex: currentIndexRef.current };
+        pendingPoolRef.current = [...pendingPoolRef.current, entry];
+        setPendingPool(prev => [...prev, entry]);
       }
 
       void persistReview(currentItem, grade, currentItem.mode);
