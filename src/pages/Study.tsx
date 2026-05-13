@@ -170,19 +170,6 @@ export default function Study() {
       const matchResult = isCorrect ? 'correct' : 'wrong';
       const grade       = determineGrade('mc', matchResult);
 
-      if (isCorrect) {
-        const typedItem: QueueItem & { word: Word } = {
-          cardId:  currentItem.cardId,
-          mode:    'typed_nl_it',
-          dueDate: null,
-          word:    currentItem.word,
-        };
-        const newQueue = [...queueRef.current];
-        newQueue.splice(currentIndexRef.current + 1, 0, typedItem);
-        queueRef.current = newQueue;
-        setQueue(newQueue);
-      }
-
       void persistReview(currentItem, grade, currentItem.mode);
       setSessionStats(prev => ({
         ...prev,
