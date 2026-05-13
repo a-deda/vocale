@@ -19,7 +19,8 @@ import ListeningCard from '@/components/study/ListeningCard';
 
 type AnswerState = null | { result: 'correct' | 'almost' | 'wrong'; input: string };
 
-const MAX_SESSION = 20;
+const MAX_SESSION  = 20;
+const MIN_SPACING  = 3; // minimaal aantal kaarten tussen MC en typed-herhaling
 
 export default function Study() {
   const navigate = useNavigate();
@@ -66,15 +67,19 @@ export default function Study() {
   const [selectedMC, setSelectedMC]   = useState<string | null>(null);
   const [sessionStats, setSessionStats] = useState({ correct: 0, incorrect: 0, startTime: Date.now() });
 
+  const [pendingPool, setPendingPool] = useState<(QueueItem & { word: Word })[]>([]);
+
   const cardStartTimeRef    = useRef(Date.now());
   const currentIndexRef     = useRef(currentIndex);
   const queueRef            = useRef(queue);
   const sessionStatsRef     = useRef(sessionStats);
+  const pendingPoolRef      = useRef(pendingPool);
   const totalWordsRef       = useRef(0);
 
-  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
-  useEffect(() => { queueRef.current        = queue;        }, [queue]);
-  useEffect(() => { sessionStatsRef.current = sessionStats; }, [sessionStats]);
+  useEffect(() => { currentIndexRef.current = currentIndex;  }, [currentIndex]);
+  useEffect(() => { queueRef.current        = queue;         }, [queue]);
+  useEffect(() => { sessionStatsRef.current = sessionStats;  }, [sessionStats]);
+  useEffect(() => { pendingPoolRef.current  = pendingPool;   }, [pendingPool]);
 
   const [listeningMutedUntil, setListeningMutedUntil] = useState<number | null>(() => {
     const stored = sessionStorage.getItem('listeningMutedUntil');
@@ -139,8 +144,21 @@ export default function Study() {
     setTypedAnswer('');
     setSelectedMC(null);
 
-    const idx = currentIndexRef.current;
-    const q   = queueRef.current;
+    const idx  = currentIndexRef.current;
+    let   q    = queueRef.current;
+    const pool = pendingPoolRef.current;
+
+    // Inject het eerste pending item als er nog maar MIN_SPACING kaarten over zijn
+    if (pool.length > 0 && (q.length - 1 - idx) <= MIN_SPACING) {
+      const [next, ...rest] = pool;
+      const newQueue = [...q];
+      newQueue.splice(idx + 1, 0, next);
+      queueRef.current    = newQueue;
+      pendingPoolRef.current = rest;
+      setQueue(newQueue);
+      setPendingPool(rest);
+      q = newQueue;
+    }
 
     if (idx < q.length - 1) {
       setCurrentIndex(prev => prev + 1);
@@ -177,10 +195,8 @@ export default function Study() {
           dueDate: null,
           word:    currentItem.word,
         };
-        const newQueue = [...queueRef.current];
-        newQueue.splice(currentIndexRef.current + 1, 0, typedItem);
-        queueRef.current = newQueue;
-        setQueue(newQueue);
+        pendingPoolRef.current = [...pendingPoolRef.current, typedItem];
+        setPendingPool(prev => [...prev, typedItem]);
       }
 
       void persistReview(currentItem, grade, currentItem.mode);
