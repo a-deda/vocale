@@ -241,13 +241,16 @@ export function buildSession(
     }
   }
 
+  // Sorteer op oudste due-datum eerst, dan cap op maxReviews zodat een sessie
+  // nooit ongelimiteerd groeit bij een grote achterstand.
   overdue.sort((a, b) => a.dueDate!.localeCompare(b.dueDate!));
+  const cappedOverdue = overdue.slice(0, maxReviews);
 
   fisherYates(listenNew);
   fisherYates(mcNew);
   fisherYates(typedNew);
 
-  const freeSlots    = Math.max(0, maxReviews - overdue.length);
+  const freeSlots    = Math.max(0, maxReviews - cappedOverdue.length);
   const cappedListen = listenNew.slice(0, MAX_NEW_LISTEN);
   const pools        = [cappedListen, mcNew, typedNew].filter(p => p.length > 0);
 
@@ -260,7 +263,7 @@ export function buildSession(
   }
 
   fisherYates(pool);
-  return [...overdue, ...pool];
+  return [...cappedOverdue, ...pool];
 }
 
 function fisherYates<T>(arr: T[]): void {

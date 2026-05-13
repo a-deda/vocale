@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Flame, Zap, BookOpen, TrendingUp, ChevronRight, Clock, Target } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
-import { getWordsForReview, getMasteryScore } from '@/lib/srs';
+import { getMasteryScore } from '@/lib/srs';
+import { buildSession } from '@/lib/fsrs';
+import type { FsrsMode, FsrsState } from '@/lib/fsrs';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -28,7 +30,7 @@ function getDayPart(hour: number): { greeting: string; session: string } {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { words, stats, sessions } = useStore();
+  const { words, stats, sessions, fsrsStates } = useStore();
   const [firstName, setFirstName] = useState<string>('');
 
   useEffect(() => {
@@ -47,13 +49,21 @@ export default function Dashboard() {
   }, []);
 
   const { greeting, session } = getDayPart(new Date().getHours());
-  const dueWords = getWordsForReview(words);
 
   // Gebruik lokale datum (niet UTC) zodat het klopt voor gebruikers in UTC+1/+2
   const localToday = (() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   })();
+
+  // Tel het aantal woorden in de echte FSRS-sessie (identiek aan Study.tsx)
+  const dueCount = useMemo(() => {
+    const allCardStates: Record<string, Partial<Record<FsrsMode, FsrsState>>> = {};
+    for (const w of words) {
+      allCardStates[w.id] = fsrsStates[w.id] ?? {};
+    }
+    return buildSession(allCardStates, localToday, 20).length;
+  }, [words, fsrsStates, localToday]);
 
   // Woorden gereviewd vandaag (lokale datum)
   const todayLearned = sessions
@@ -138,7 +148,7 @@ export default function Dashboard() {
           Start je {session}
         </h2>
         <p className="text-sm text-primary-foreground/80 mt-2">
-          {dueWords.length} woorden staan klaar voor herhaling. Focus op je zwakke punten.
+          {dueCount} woorden staan klaar voor herhaling. Focus op je zwakke punten.
         </p>
         <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-background/20 px-4 py-2 text-sm font-semibold text-primary-foreground backdrop-blur-sm">
           Verder leren <ChevronRight className="h-4 w-4" />
