@@ -10,10 +10,10 @@
 
 Tijdens een studie-sessie moet de gebruiker een woord of vertaling subtiel kunnen aanpassen zonder de sessie te onderbreken.
 
-- [ ] Klein bewerkingsicoontje (potlood) tonen naast het woord in de vraagkaart
-- [ ] Klikken opent een compacte inline editor (niet een volledige modal) voor het woord én de vertaling
-- [ ] Opslaan werkt direct via Supabase; de kaart herlaadt met de gecorrigeerde waarde
-- [ ] Bewerking is beschikbaar in alle kaarttypes (FlashcardCard, FillBlankCard, ProductionCard, ListeningCard)
+- [x] Klein bewerkingsicoontje (potlood) tonen naast het woord in de vraagkaart (naast de mute-knop in de header)
+- [x] Klikken opent een compacte overlay-editor voor het woord én de vertaling
+- [x] Opslaan werkt direct via Supabase; de kaart herlaadt met de gecorrigeerde waarde
+- [x] Beschikbaar in alle kaarttypes via de Study-header (één plek, alle modi)
 
 ---
 
@@ -21,45 +21,54 @@ Tijdens een studie-sessie moet de gebruiker een woord of vertaling subtiel kunne
 
 Als een woord meerdere betekenissen heeft, mag er telkens maar één worden getoond.
 
-- [ ] Bij het laden van een kaart: willekeurig één betekenis selecteren uit de lijst
-- [ ] Dezelfde willekeurige selectie toepassen op de mc-antwoordopties (zodat de getoonde betekenis consistent is met de juiste keuze)
-- [ ] Gedrag verifiëren voor FlashcardCard, FillBlankCard en mc-varianten
+- [x] Bij het laden van een kaart: willekeurig één betekenis selecteren uit de lijst (per cardId + mode)
+- [x] Dezelfde selectie doorgeven aan de mc-antwoordopties (consistent juiste keuze)
+- [x] Toegepast op MC (IntroCard) en productie NL→IT (ProductionCard nl_it)
+- [ ] Gedrag verifiëren voor FlashcardCard en ListeningCard indien relevant
 
 ---
 
 ## 3. Totale beheersing op dashboard loopt niet op
 
-- [ ] Oorzaak opsporen: berekening of query die de beheersingscore voorziet op het dashboard
-- [ ] Logica corrigeren zodat de score oploopt naarmate woorden worden geoefend
-- [ ] Testen met bekende woordenset om te verifiëren dat de waarde correct stijgt
+Oorzaak: `getMasteryScore` las SM-2 legacy-velden (`repetitions`, `interval`) die nooit worden
+bijgewerkt door FSRS-sessies.
+
+- [x] Oorzaak opgespoord (SM-2/FSRS-disconnect)
+- [x] Dashboard gebruikt nu `getFsrsMasteryScore` op basis van FSRS-stabiliteit
+- [x] Word.status wordt na elke review gesynchroniseerd vanuit FSRS (via `persistReview` in Study)
 
 ---
 
 ## 4. Stats-pagina – blokje 'Prestatie' klopt niet
 
-- [ ] Oorzaak opsporen waarom de prestatiescore niet wordt bijgewerkt
-- [ ] Fix doorvoeren en gedrag verifiëren
+Zelfde oorzaak als #3: word.status nooit bijgewerkt door FSRS.
+
+- [x] Status-counts (stabiel / herhaling / lerend / nieuw) worden nu live afgeleid van FSRS-states
+- [x] Nauwkeurigheidsscore werkt onafhankelijk via sessiedata (was al correct)
 
 ---
 
 ## 5. Stats-pagina – blokje 'Activiteit' toont niets voor 7 en 30 dagen
 
-- [ ] Controleren welke query/aggregatie wordt gebruikt voor de activiteitsgrafiek
-- [ ] 7-dagenweergave repareren
-- [ ] 30-dagenweergave repareren
-- [ ] Testen dat activiteit correct verschijnt na het voltooien van een sessie
+Code is correct; sessieopslag en date-mapping kloppen. Vermoedelijke oorzaak: nog geen voltooide sessies in de database,
+of `words_studied = 0` in opgeslagen sessies. Te monitoren na gebruik met de gecorrigeerde word-sync.
+
+- [ ] Na een sessie verifiëren dat de balken zichtbaar zijn in de 7- en 30-dagenweergave
+- [ ] Indien nog steeds leeg: `study_sessions`-tabel controleren op `words_studied`-waarden
 
 ---
 
 ## 6. Stats-pagina – 'Lastigste woorden' updaten niet
 
-- [ ] Opsporen waarom de lijst niet ververst na sessies
-- [ ] Fix doorvoeren
+Zelfde oorzaak als #3/#4.
+
+- [x] Hardste woorden gebaseerd op `getFsrsMasteryScore` + `consecutiveErrors` (nu gesynchroniseerd)
 
 ---
 
 ## 7. Stats-pagina – link 'Bekijk alle' geeft 404
 
-- [ ] Routedefinitie of href opsporen die de 404 veroorzaakt
-- [ ] Juiste route instellen of aanmaken
-- [ ] Verifiëren dat de pagina correct laadt
+Route was `/wordbank`; de correcte route is `/toevoegen`.
+
+- [x] Link "Bekijk alle →" gecorrigeerd naar `/toevoegen`
+- [x] Klikbare rijen in de 'Lastigste woorden'-lijst ook gecorrigeerd

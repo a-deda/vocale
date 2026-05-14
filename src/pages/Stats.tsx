@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useStore } from '@/components/StoreProvider';
 import { TrendingUp, Heart, BarChart3, Clock, Flame, Target, AlertCircle, Timer, Trophy } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
-import { getMasteryScore } from '@/lib/srs';
+import { getFsrsMasteryScore, FSRS_MODES } from '@/lib/fsrs';
 import { ActivityHeatmap } from '@/components/stats/ActivityHeatmap';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -64,12 +64,20 @@ function formatEtaLabel(daysLeft: number): string {
 }
 
 export default function Stats() {
-  const { words, stats, sessions, loading } = useStore();
+  const { words, stats, sessions, fsrsStates, loading } = useStore();
 
-  const stableWords = words.filter(w => w.status === 'stable').length;
-  const reviewWords = words.filter(w => w.status === 'review').length;
-  const learningWords = words.filter(w => w.status === 'learning').length;
-  const newWords = words.filter(w => w.status === 'new').length;
+  const { stableWords, reviewWords, learningWords, newWords } = useMemo(() => {
+    let stable = 0, review = 0, learning = 0, newW = 0;
+    for (const w of words) {
+      const states = fsrsStates[w.id] ?? {};
+      const maxStability = Math.max(0, ...FSRS_MODES.map(m => states[m]?.stability ?? 0));
+      if (maxStability >= 21) stable++;
+      else if (maxStability >= 7) review++;
+      else if (maxStability > 0) learning++;
+      else newW++;
+    }
+    return { stableWords: stable, reviewWords: review, learningWords: learning, newWords: newW };
+  }, [words, fsrsStates]);
   const dueCount = learningWords + reviewWords;
 
   const categories = useMemo(() => {
@@ -93,14 +101,17 @@ export default function Stats() {
   // Hardest words
   const hardestWords = useMemo(() => {
     return [...words]
-      .filter(w => w.status !== 'new')
-      .map(w => ({ w, score: getMasteryScore(w), errors: w.consecutiveErrors }))
+      .filter(w => {
+        const states = fsrsStates[w.id] ?? {};
+        return FSRS_MODES.some(m => states[m]?.stability != null);
+      })
+      .map(w => ({ w, score: getFsrsMasteryScore(fsrsStates[w.id] ?? {}), errors: w.consecutiveErrors }))
       .sort((a, b) => {
         if (b.errors !== a.errors) return b.errors - a.errors;
         return a.score - b.score;
       })
       .slice(0, 5);
-  }, [words]);
+  }, [words, fsrsStates]);
 
   // Study time
   const studyTime = useMemo(() => {
@@ -421,13 +432,13 @@ export default function Stats() {
                 <AlertCircle className="h-4 w-4 text-destructive" />
                 <h3 className="text-sm font-semibold text-foreground">Lastigste woorden</h3>
               </div>
-              <Link to="/wordbank" className="text-[10px] text-accent hover:underline">Bekijk alle →</Link>
+              <Link to="/toevoegen" className="text-[10px] text-accent hover:underline">Bekijk alle →</Link>
             </div>
             <div className="space-y-2">
               {hardestWords.map(({ w, score, errors }) => (
                 <Link
                   key={w.id}
-                  to="/wordbank"
+                  to="/toevoegen"
                   className="flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-muted/40 transition-colors"
                 >
                   <div className="flex-1 min-w-0">
