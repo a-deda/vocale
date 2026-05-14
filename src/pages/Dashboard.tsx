@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Flame, Zap, BookOpen, TrendingUp, ChevronRight, Clock, Target } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
-import { getMasteryScore } from '@/lib/srs';
-import { buildSession } from '@/lib/fsrs';
+import { buildSession, getFsrsMasteryScore } from '@/lib/fsrs';
 import type { FsrsMode, FsrsState } from '@/lib/fsrs';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
@@ -82,7 +81,7 @@ export default function Dashboard() {
   // Alleen 'vandaag voltooid' als lastStudyDate écht vandaag is
   const studiedToday = stats.lastStudyDate === localToday;
   const progressPercent = stats.dailyGoal > 0 ? Math.min(100, Math.round((todayLearned / stats.dailyGoal) * 100)) : 0;
-  const avgMastery = words.length > 0 ? Math.round(words.reduce((sum, w) => sum + getMasteryScore(w), 0) / words.length) : 0;
+  const avgMastery = words.length > 0 ? Math.round(words.reduce((sum, w) => sum + getFsrsMasteryScore(fsrsStates[w.id] ?? {}), 0) / words.length) : 0;
 
   // Build last 7 days chart data from real sessions (use local date keys)
   const weekData = useMemo(() => {

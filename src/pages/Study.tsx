@@ -1,15 +1,15 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, VolumeX, Volume2 } from 'lucide-react';
+import { ArrowLeft, VolumeX, Volume2, Pencil } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
 import {
   buildSession, reviewCard, determineGrade, adjustGradeBySpeed,
-  emptyFsrsState, MODE_LABELS,
+  emptyFsrsState, MODE_LABELS, GRADE, FSRS_MODES,
 } from '@/lib/fsrs';
 import type { FsrsMode, FsrsGrade, FsrsState, QueueItem } from '@/lib/fsrs';
 import { fuzzyMatch, fuzzyMatchWithAlternatives, generateMCOptions } from '@/lib/srs';
 import { Word } from '@/types/word';
-import { formatTranslations } from '@/lib/translation-utils';
+import { formatTranslations, splitTranslations } from '@/lib/translation-utils';
 import { findSynonymOriginals } from '@/lib/synonyms';
 import { Progress } from '@/components/ui/progress';
 import IntroCard from '@/components/study/IntroCard';
@@ -23,7 +23,7 @@ const MIN_SPACING  = 3; // minimaal aantal kaarten tussen MC en typed-herhaling
 
 export default function Study() {
   const navigate = useNavigate();
-  const { words, fsrsStates, upsertFsrsState, addReviewLog, updateStreak, addSession, stats } = useStore();
+  const { words, fsrsStates, upsertFsrsState, addReviewLog, updateStreak, addSession, stats, updateWord } = useStore();
 
   const today = (() => {
     const d = new Date();
@@ -71,6 +71,11 @@ export default function Study() {
   const [typedAnswer, setTypedAnswer] = useState('');
   const [selectedMC, setSelectedMC]   = useState<string | null>(null);
   const [sessionStats, setSessionStats] = useState({ correct: 0, incorrect: 0, startTime: Date.now() });
+
+  // ─── Inline edit ────────────────────────────────────────────────────────
+  const [editOpen, setEditOpen]           = useState(false);
+  const [editOriginal, setEditOriginal]   = useState('');
+  const [editTranslation, setEditTranslation] = useState('');
 
   const [pendingPool, setPendingPool] = useState<{ item: QueueItem & { word: Word }; addedAtIndex: number }[]>([]);
 
@@ -120,19 +125,47 @@ export default function Study() {
 
   const progress = queue.length > 0 ? (currentIndex / queue.length) * 100 : 0;
 
+  // ─── Willekeurige betekenis (per kaart) ─────────────────────────────────
+  const activeMeaning = useMemo(() => {
+    if (!currentItem) return '';
+    const parts = splitTranslations(currentItem.word.translation);
+    if (parts.length <= 1) return currentItem.word.translation;
+    return parts[Math.floor(Math.random() * parts.length)];
+  }, [currentItem?.cardId, currentItem?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const activeMeaningRef = useRef(activeMeaning);
+  useEffect(() => { activeMeaningRef.current = activeMeaning; }, [activeMeaning]);
+
   const mcOptions = useMemo(() => {
     if (!currentItem || mode !== 'mc') return [];
-    return generateMCOptions(currentItem.word, words);
-  }, [currentItem?.cardId, mode, words]);
+    return generateMCOptions({ ...currentItem.word, translation: activeMeaning }, words);
+  }, [currentItem?.cardId, mode, words, activeMeaning]);
 
   const synonymOriginals = useMemo(() => {
     if (!currentItem) return [];
     return findSynonymOriginals(currentItem.word, words);
   }, [currentItem?.cardId, words]);
 
+  // ─── Inline edit handlers ────────────────────────────────────────────────
+  const openEdit = useCallback(() => {
+    if (!currentItem) return;
+    setEditOriginal(currentItem.word.original);
+    setEditTranslation(currentItem.word.translation);
+    setEditOpen(true);
+  }, [currentItem]);
+
+  const saveEdit = useCallback(async () => {
+    if (!currentItem) return;
+    await updateWord(currentItem.cardId, {
+      original: editOriginal.trim(),
+      translation: editTranslation.trim(),
+    });
+    setEditOpen(false);
+  }, [currentItem, editOriginal, editTranslation, updateWord]);
+
   // ─── Helpers ────────────────────────────────────────────────────────────
 
-  /** Sla FSRS-state + log op na een review. */
+  /** Sla FSRS-state + log op na een review en synchroniseer word-velden. */
   const persistReview = useCallback(async (
     item:  QueueItem & { word: Word },
     grade: FsrsGrade,
@@ -143,7 +176,23 @@ export default function Study() {
     await upsertFsrsState(item.cardId, usedMode, newState);
     await addReviewLog({ ...logPartial, cardId: item.cardId, mode: usedMode });
     await updateStreak();
-  }, [fsrsStates, today, upsertFsrsState, addReviewLog, updateStreak]);
+
+    // Sync word.status en consecutiveErrors vanuit FSRS-state
+    const allStates = { ...(fsrsStates[item.cardId] ?? {}), [usedMode]: newState };
+    const maxStability = Math.max(0, ...FSRS_MODES.map(m => allStates[m]?.stability ?? 0));
+    const newStatus: Word['status'] =
+      maxStability >= 21 ? 'stable' :
+      maxStability >= 7  ? 'review' :
+      maxStability > 0   ? 'learning' : 'new';
+    const newConsecErrors = grade === GRADE.FORGOT
+      ? (item.word.consecutiveErrors ?? 0) + 1
+      : 0;
+    await updateWord(item.cardId, {
+      status: newStatus,
+      lastReview: newState.lastReviewedAt ?? undefined,
+      consecutiveErrors: newConsecErrors,
+    });
+  }, [fsrsStates, today, upsertFsrsState, addReviewLog, updateStreak, updateWord]);
 
   const moveToNext = useCallback(() => {
     setAnswerState(null);
@@ -193,7 +242,7 @@ export default function Study() {
     setSelectedMC(selected);
 
     setTimeout(() => {
-      const correct   = formatTranslations(currentItem.word.translation).replace(/\s*\([^)]+\)/g, '').trim();
+      const correct   = activeMeaningRef.current.replace(/\s*\([^)]+\)/g, '').trim();
       const isCorrect = selected === correct;
       const matchResult = isCorrect ? 'correct' : 'wrong';
       const grade       = determineGrade('mc', matchResult);
@@ -334,6 +383,11 @@ export default function Study() {
 
   const modeLabel = MODE_LABELS[mode];
 
+  // Word met de actieve betekenis (voor MC en productie nl→it)
+  const displayWord = currentItem
+    ? { ...currentItem.word, translation: activeMeaning }
+    : null;
+
   return (
     <div className="max-w-lg mx-auto animate-slide-up">
       <div className="flex items-center justify-between mb-4">
@@ -348,6 +402,13 @@ export default function Study() {
           >
             {isListeningMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
           </button>
+          <button
+            onClick={openEdit}
+            title="Woord aanpassen"
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-2 py-0.5 rounded-full bg-secondary">
             {modeLabel}
           </span>
@@ -357,16 +418,16 @@ export default function Study() {
       </div>
       <Progress value={progress} className="h-1.5 mb-6 bg-border" />
 
-      {mode === 'mc' ? (
+      {mode === 'mc' && displayWord ? (
         <IntroCard
-          word={currentItem.word}
+          word={displayWord}
           options={mcOptions}
           selected={selectedMC}
           onSelect={handleMCAnswer}
         />
-      ) : mode === 'typed_nl_it' ? (
+      ) : mode === 'typed_nl_it' && displayWord ? (
         <ProductionCard
-          word={currentItem.word}
+          word={displayWord}
           direction="nl_it"
           typedAnswer={typedAnswer}
           onTypeAnswer={setTypedAnswer}
@@ -402,6 +463,47 @@ export default function Study() {
           onRate={handleFlashcardRate}
         />
       ) : null}
+
+      {/* Inline edit overlay */}
+      {editOpen && currentItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm p-4">
+          <div className="bg-card border border-border rounded-xl p-5 shadow-xl w-full max-w-sm">
+            <h3 className="text-sm font-semibold text-foreground mb-4">Woord aanpassen</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Italiaans</label>
+                <input
+                  value={editOriginal}
+                  onChange={e => setEditOriginal(e.target.value)}
+                  className="mt-1 w-full rounded-lg bg-background border border-border px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Nederlands</label>
+                <input
+                  value={editTranslation}
+                  onChange={e => setEditTranslation(e.target.value)}
+                  className="mt-1 w-full rounded-lg bg-background border border-border px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => setEditOpen(false)}
+                className="flex-1 rounded-lg bg-secondary text-secondary-foreground px-4 py-2 text-sm font-medium"
+              >
+                Annuleren
+              </button>
+              <button
+                onClick={saveEdit}
+                className="flex-1 rounded-lg gradient-primary text-primary-foreground px-4 py-2 text-sm font-semibold"
+              >
+                Opslaan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
