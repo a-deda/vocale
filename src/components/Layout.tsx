@@ -11,6 +11,8 @@ export default function Layout() {
         <div className="mx-auto max-w-5xl p-4 md:p-8">
           <Outlet />
         </div>
+        {/* Spacer zodat content boven de home-indicator-balk uitkomt op iPhone */}
+        <div className="md:hidden" style={{ height: 'env(safe-area-inset-bottom)' }} />
       </main>
       <BottomNav />
     </div>
