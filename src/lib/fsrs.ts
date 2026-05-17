@@ -225,8 +225,15 @@ export function buildSession(
 
   for (const cardId of Object.keys(cardStates)) {
     const states = cardStates[cardId];
+    const hasTyped = !!states?.['typed_nl_it'];
+
     for (let mi = 0; mi < PRIORITY.length; mi++) {
       const mode = PRIORITY[mi];
+
+      // Listen en MC zijn intro-stappen; zodra het woord ooit getypt is,
+      // komen alleen nog typed-reviews terug.
+      if (hasTyped && (mode === 'listen_type' || mode === 'mc')) continue;
+
       const s = states?.[mode];
       if (!s) {
         // Als een latere mode al een state heeft, is dit woord al verder in de
