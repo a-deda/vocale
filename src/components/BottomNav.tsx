@@ -58,7 +58,7 @@ export function TopBar() {
   const today = new Date().toISOString().split('T')[0];
   const studiedToday = stats.lastStudyDate === today;
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur-lg md:hidden">
+    <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur-lg md:hidden" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
       <div className="flex items-center gap-2">
         <span className="text-lg font-bold italic text-gradient-primary">Lexis</span>
       </div>

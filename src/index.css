@@ -56,6 +56,16 @@
   }
 }
 
+/* Dynamische top-padding voor mobiele layout die rekening houdt met iOS safe area */
+.main-content {
+  padding-top: calc(3.5rem + env(safe-area-inset-top));
+}
+@media (min-width: 768px) {
+  .main-content {
+    padding-top: 0;
+  }
+}
+
 @layer base {
   * {
     @apply border-border;
