@@ -156,10 +156,14 @@ export default function Study() {
 
   const saveEdit = useCallback(async () => {
     if (!currentItem) return;
-    await updateWord(currentItem.cardId, {
-      original: editOriginal.trim(),
-      translation: editTranslation.trim(),
-    });
+    const original    = editOriginal.trim();
+    const translation = editTranslation.trim();
+    await updateWord(currentItem.cardId, { original, translation });
+    setQueue(prev => prev.map(item =>
+      item.cardId === currentItem.cardId
+        ? { ...item, word: { ...item.word, original, translation } }
+        : item
+    ));
     setEditOpen(false);
   }, [currentItem, editOriginal, editTranslation, updateWord]);
 
