@@ -225,9 +225,14 @@ export function buildSession(
 
   for (const cardId of Object.keys(cardStates)) {
     const states = cardStates[cardId];
-    for (const mode of PRIORITY) {
+    for (let mi = 0; mi < PRIORITY.length; mi++) {
+      const mode = PRIORITY[mi];
       const s = states?.[mode];
       if (!s) {
+        // Als een latere mode al een state heeft, is dit woord al verder in de
+        // pipeline dan deze introstap → overslaan, niet opnieuw introduceren.
+        const alreadyAdvanced = PRIORITY.slice(mi + 1).some(m => states?.[m]);
+        if (alreadyAdvanced) continue;
         if (mode === 'listen_type') listenNew.push({ cardId, mode, dueDate: null });
         else if (mode === 'mc')     mcNew.push({ cardId, mode, dueDate: null });
         else                        typedNew.push({ cardId, mode, dueDate: null });

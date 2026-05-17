@@ -146,7 +146,7 @@ export default function Stats() {
 
     const remainingWork = words
       .filter(w => w.status !== 'stable')
-      .reduce((acc, w) => acc + Math.max(0, 1 - getMasteryScore(w) / 100), 0);
+      .reduce((acc, w) => acc + Math.max(0, 1 - getFsrsMasteryScore(fsrsStates[w.id] ?? {}) / 100), 0);
 
     const reviewProgress = words.filter(w => w.status === 'review').length * 0.5;
     const learningProgress = words.filter(w => w.status === 'learning').length * 0.2;
@@ -159,7 +159,7 @@ export default function Stats() {
     const rawDaysLeft = remainingWork / perDay;
     const daysLeft = Math.ceil(rawDaysLeft);
     return { empty: false as const, done: false, masteredPct, nonStable, perDay, daysLeft, etaLabel: formatEtaLabel(daysLeft), activeDays, recentlyStable };
-  }, [words, sessions, stableWords]);
+  }, [words, sessions, stableWords, fsrsStates]);
 
   const [etaHistory, setEtaHistory] = useState<EtaEntry[]>(() => readEtaHistoryLocal());
   const lastWriteRef = useRef<number>(0);
