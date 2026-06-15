@@ -394,6 +394,13 @@ export default function Study() {
     commitTyped(pc.item, pc.usedMode, result, pc.responseMs);
   }, [commitTyped]);
 
+  /** 'Toch goed rekenen': overschrijf de beoordeling naar correct en ga door. */
+  const handleMarkCorrect = useCallback(() => {
+    const pc = pendingCommitRef.current;
+    if (!pc) return;
+    commitTyped(pc.item, pc.usedMode, 'correct', pc.responseMs);
+  }, [commitTyped]);
+
   /** Sla een correctie op en herbeoordeel het lopende antwoord meteen. */
   const handleSaveCorrection = useCallback((original: string, translation: string) => {
     const pc = pendingCommitRef.current;
@@ -560,6 +567,7 @@ export default function Study() {
           result={answerState.result}
           corrected={corrected}
           onSave={handleSaveCorrection}
+          onMarkCorrect={handleMarkCorrect}
           onContinue={handleContinue}
         />
       )}
