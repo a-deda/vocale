@@ -70,7 +70,6 @@ export default function Study() {
   const [answerState, setAnswerState] = useState<AnswerState>(null);
   const [typedAnswer, setTypedAnswer] = useState('');
   const [selectedMC, setSelectedMC]   = useState<string | null>(null);
-  const [sessionStats, setSessionStats] = useState({ correct: 0, incorrect: 0, startTime: Date.now() });
 
   // ─── Inline edit ────────────────────────────────────────────────────────
   const [editOpen, setEditOpen]           = useState(false);
@@ -80,16 +79,19 @@ export default function Study() {
   const [pendingPool, setPendingPool] = useState<{ item: QueueItem & { word: Word }; addedAtIndex: number }[]>([]);
 
   const cardStartTimeRef    = useRef(Date.now());
+  const sessionStartRef     = useRef(Date.now());
   const currentIndexRef     = useRef(currentIndex);
   const queueRef            = useRef(queue);
-  const sessionStatsRef     = useRef(sessionStats);
   const pendingPoolRef      = useRef(pendingPool);
   const retriedCardsRef     = useRef(new Set<string>());
-  const totalWordsRef       = useRef(0);
+  // Per uniek woord het laatste resultaat (true = correct). Hieruit leiden we de
+  // sessietellers af, zodat 'woorden', 'goed' en 'fout' altijd op elkaar kloppen
+  // (één woord telt één keer, ongeacht intro + getypte follow-up + herkansingen).
+  const wordResultsRef      = useRef(new Map<string, boolean>());
+  const [finalStats, setFinalStats] = useState({ words: 0, correct: 0 });
 
   useEffect(() => { currentIndexRef.current = currentIndex;  }, [currentIndex]);
   useEffect(() => { queueRef.current        = queue;         }, [queue]);
-  useEffect(() => { sessionStatsRef.current = sessionStats;  }, [sessionStats]);
   useEffect(() => { pendingPoolRef.current  = pendingPool;   }, [pendingPool]);
 
   const [listeningMutedUntil, setListeningMutedUntil] = useState<number | null>(() => {
@@ -198,6 +200,11 @@ export default function Study() {
     });
   }, [fsrsStates, today, upsertFsrsState, addReviewLog, updateStreak, updateWord]);
 
+  /** Leg het (laatste) resultaat per uniek woord vast. */
+  const recordResult = useCallback((cardId: string, correct: boolean) => {
+    wordResultsRef.current.set(cardId, correct);
+  }, []);
+
   const moveToNext = useCallback(() => {
     setAnswerState(null);
     setTypedAnswer('');
@@ -228,13 +235,19 @@ export default function Study() {
       return;
     }
 
-    totalWordsRef.current = q.length;
+    // Tellers afleiden uit het per-woord eindresultaat (synchrone ref → geen
+    // off-by-one). 'Woorden' = unieke woorden; goed + fout = woorden.
+    const results       = wordResultsRef.current;
+    const distinctWords = results.size;
+    const correct       = [...results.values()].filter(Boolean).length;
+    const incorrect     = distinctWords - correct;
+    setFinalStats({ words: distinctWords, correct });
     void addSession({
       date:         new Date().toISOString(),
-      wordsStudied: q.length,
-      correct:      sessionStatsRef.current.correct,
-      incorrect:    sessionStatsRef.current.incorrect,
-      duration:     Math.round((Date.now() - sessionStatsRef.current.startTime) / 1000),
+      wordsStudied: distinctWords,
+      correct,
+      incorrect,
+      duration:     Math.round((Date.now() - sessionStartRef.current) / 1000),
     });
     setCurrentIndex(q.length);
   }, [addSession]);
@@ -264,14 +277,10 @@ export default function Study() {
       }
 
       void persistReview(currentItem, grade, currentItem.mode);
-      setSessionStats(prev => ({
-        ...prev,
-        correct:   isCorrect ? prev.correct + 1 : prev.correct,
-        incorrect: !isCorrect ? prev.incorrect + 1 : prev.incorrect,
-      }));
+      recordResult(currentItem.cardId, isCorrect);
       moveToNext();
     }, 1200);
-  }, [currentItem, selectedMC, persistReview, moveToNext]);
+  }, [currentItem, selectedMC, persistReview, recordResult, moveToNext]);
 
   const handleSubmitAnswer = useCallback(() => {
     if (!currentItem || !typedAnswer.trim()) return;
@@ -298,11 +307,21 @@ export default function Study() {
       grade = adjustGradeBySpeed(grade, usedMode, responseMs, currentItem.word.original.length);
 
       void persistReview(currentItem, grade, usedMode);
-      setSessionStats(prev => ({
-        ...prev,
-        correct:   matchResult === 'correct' ? prev.correct + 1 : prev.correct,
-        incorrect: matchResult !== 'correct' ? prev.incorrect + 1 : prev.incorrect,
-      }));
+      recordResult(currentItem.cardId, matchResult === 'correct');
+
+      // Na een correcte luister-kennismaking: ditzelfde woord nog in deze sessie
+      // laten typen, zodat herkenning meteen wordt omgezet in productie.
+      if (usedMode === 'listen_type' && matchResult === 'correct') {
+        const typedItem: QueueItem & { word: Word } = {
+          cardId:  currentItem.cardId,
+          mode:    'typed_nl_it',
+          dueDate: null,
+          word:    currentItem.word,
+        };
+        const entry = { item: typedItem, addedAtIndex: currentIndexRef.current };
+        pendingPoolRef.current = [...pendingPoolRef.current, entry];
+        setPendingPool(prev => [...prev, entry]);
+      }
 
       // Bij fout: één herkansing later in de sessie
       const retryKey = currentItem.cardId + usedMode;
@@ -315,7 +334,7 @@ export default function Study() {
 
       moveToNext();
     }, 1500);
-  }, [currentItem, typedAnswer, effectiveMode, synonymOriginals, persistReview, moveToNext]);
+  }, [currentItem, typedAnswer, effectiveMode, synonymOriginals, persistReview, recordResult, moveToNext]);
 
   const handleSkip = useCallback(() => {
     if (!currentItem) return;
@@ -323,21 +342,17 @@ export default function Study() {
 
     setTimeout(() => {
       void persistReview(currentItem, 1 /* FORGOT */, currentItem.mode);
-      setSessionStats(prev => ({ ...prev, incorrect: prev.incorrect + 1 }));
+      recordResult(currentItem.cardId, false);
       moveToNext();
     }, 1500);
-  }, [currentItem, persistReview, moveToNext]);
+  }, [currentItem, persistReview, recordResult, moveToNext]);
 
   const handleFlashcardRate = useCallback((grade: FsrsGrade) => {
     if (!currentItem) return;
     void persistReview(currentItem, grade, 'self_assess');
-    setSessionStats(prev => ({
-      ...prev,
-      correct:   grade >= 3 ? prev.correct + 1 : prev.correct,
-      incorrect: grade <  3 ? prev.incorrect + 1 : prev.incorrect,
-    }));
+    recordResult(currentItem.cardId, grade >= 3);
     moveToNext();
-  }, [currentItem, persistReview, moveToNext]);
+  }, [currentItem, persistReview, recordResult, moveToNext]);
 
   // ─── Leeg / klaar ──────────────────────────────────────────────────────
 
@@ -355,18 +370,18 @@ export default function Study() {
   }
 
   if (currentIndex >= queue.length && queue.length > 0) {
-    const totalTime = Math.round((Date.now() - sessionStats.startTime) / 1000);
+    const totalTime = Math.round((Date.now() - sessionStartRef.current) / 1000);
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center animate-slide-up">
         <div className="text-6xl mb-4">⚡</div>
         <h2 className="text-2xl font-bold text-foreground">Sessie Voltooid!</h2>
         <div className="grid grid-cols-3 gap-4 mt-6 w-full max-w-sm">
           <div className="glass-card rounded-xl p-4">
-            <p className="text-2xl font-bold text-foreground">{totalWordsRef.current}</p>
+            <p className="text-2xl font-bold text-foreground">{finalStats.words}</p>
             <p className="text-[10px] text-muted-foreground uppercase">Woorden</p>
           </div>
           <div className="glass-card rounded-xl p-4">
-            <p className="text-2xl font-bold text-success">{sessionStats.correct}</p>
+            <p className="text-2xl font-bold text-success">{finalStats.correct}</p>
             <p className="text-[10px] text-muted-foreground uppercase">Goed</p>
           </div>
           <div className="glass-card rounded-xl p-4">

@@ -12,7 +12,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Word } from '@/types/word';
-import { getMasteryScore } from '@/lib/srs';
+import { getFsrsMasteryScore } from '@/lib/fsrs';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
@@ -29,7 +29,7 @@ interface PendingWord {
 }
 
 export default function WordBank() {
-  const { words, addWords, deleteWord, updateWord, autoTranslate } = useStore();
+  const { words, fsrsStates, addWords, deleteWord, updateWord, autoTranslate } = useStore();
   const { toast } = useToast();
   const [bulkInput, setBulkInput] = useState('');
   const [autoTranslateOn, setAutoTranslateOn] = useState(true);
@@ -373,10 +373,15 @@ export default function WordBank() {
                     </>
                   )}
 
-                  <div className="flex items-center gap-2 mt-2">
-                    <Progress value={getMasteryScore(word)} className="h-1.5 flex-1" />
-                    <span className="text-[10px] font-medium text-muted-foreground">{getMasteryScore(word)}%</span>
-                  </div>
+                  {(() => {
+                    const mastery = getFsrsMasteryScore(fsrsStates[word.id] ?? {});
+                    return (
+                      <div className="flex items-center gap-2 mt-2">
+                        <Progress value={mastery} className="h-1.5 flex-1" />
+                        <span className="text-[10px] font-medium text-muted-foreground">{mastery}%</span>
+                      </div>
+                    );
+                  })()}
                   {word.autoTranslated && (
                     <span className="text-[9px] bg-accent/10 text-accent px-1.5 py-0.5 rounded mt-1.5 inline-block">AI vertaald</span>
                   )}
