@@ -16,6 +16,10 @@ import IntroCard from '@/components/study/IntroCard';
 import ProductionCard from '@/components/study/ProductionCard';
 import FlashcardCard from '@/components/study/FlashcardCard';
 import ListeningCard from '@/components/study/ListeningCard';
+import FeedbackCorrection from '@/components/study/FeedbackCorrection';
+
+/** Modi die een getypt antwoord met feedbackscherm hebben. */
+const TYPED_FEEDBACK_MODES: FsrsMode[] = ['typed_nl_it', 'typed_it_nl', 'listen_type'];
 
 type AnswerState = null | { result: 'correct' | 'almost' | 'wrong'; input: string };
 
@@ -70,6 +74,20 @@ export default function Study() {
   const [answerState, setAnswerState] = useState<AnswerState>(null);
   const [typedAnswer, setTypedAnswer] = useState('');
   const [selectedMC, setSelectedMC]   = useState<string | null>(null);
+
+  // Gepauzeerd feedbackscherm: bij een niet-correct getypt antwoord wachten we
+  // op de gebruiker (kans om het woord te corrigeren) i.p.v. automatisch door
+  // te gaan. De beoordeling wordt pas weggeschreven bij 'Verder'.
+  const [paused, setPaused]       = useState(false);
+  const [corrected, setCorrected] = useState(false);
+  const pendingCommitRef = useRef<{
+    item: QueueItem & { word: Word };
+    usedMode: FsrsMode;
+    responseMs: number;
+    input: string;
+  } | null>(null);
+  const answerStateRef = useRef<AnswerState>(null);
+  useEffect(() => { answerStateRef.current = answerState; }, [answerState]);
 
   // ─── Inline edit ────────────────────────────────────────────────────────
   const [editOpen, setEditOpen]           = useState(false);
@@ -209,6 +227,9 @@ export default function Study() {
     setAnswerState(null);
     setTypedAnswer('');
     setSelectedMC(null);
+    setPaused(false);
+    setCorrected(false);
+    pendingCommitRef.current = null;
 
     const idx  = currentIndexRef.current;
     let   q    = queueRef.current;
@@ -282,70 +303,117 @@ export default function Study() {
     }, 1200);
   }, [currentItem, selectedMC, persistReview, recordResult, moveToNext]);
 
+  /** Beoordeel een getypt antwoord tegen het (eventueel aangepaste) woord. */
+  const evaluateTyped = useCallback((
+    input: string,
+    word: Word,
+    usedMode: FsrsMode,
+  ): 'correct' | 'almost' | 'wrong' => {
+    if (usedMode === 'typed_nl_it') {
+      // NL → IT: accepteer ook synoniemen
+      return fuzzyMatchWithAlternatives(input, word.original, findSynonymOriginals(word, words));
+    }
+    if (usedMode === 'typed_it_nl') {
+      // IT → NL
+      return fuzzyMatch(input, word.translation);
+    }
+    // listen_type / fill_blank: exacte IT-spelling
+    return fuzzyMatch(input, word.original);
+  }, [words]);
+
+  /** Schrijf de (eventueel herziene) beoordeling weg en ga door. */
+  const commitTyped = useCallback((
+    item: QueueItem & { word: Word },
+    usedMode: FsrsMode,
+    matchResult: 'correct' | 'almost' | 'wrong',
+    responseMs: number,
+  ) => {
+    let grade = determineGrade(usedMode, matchResult);
+    grade = adjustGradeBySpeed(grade, usedMode, responseMs, item.word.original.length);
+
+    void persistReview(item, grade, usedMode);
+    recordResult(item.cardId, matchResult === 'correct');
+
+    // Na een correcte luister-kennismaking: ditzelfde woord nog in deze sessie
+    // laten typen, zodat herkenning meteen wordt omgezet in productie.
+    if (usedMode === 'listen_type' && matchResult === 'correct') {
+      const typedItem: QueueItem & { word: Word } = {
+        cardId:  item.cardId,
+        mode:    'typed_nl_it',
+        dueDate: null,
+        word:    item.word,
+      };
+      const entry = { item: typedItem, addedAtIndex: currentIndexRef.current };
+      pendingPoolRef.current = [...pendingPoolRef.current, entry];
+      setPendingPool(prev => [...prev, entry]);
+    }
+
+    // Bij fout: één herkansing later in de sessie
+    const retryKey = item.cardId + usedMode;
+    if (matchResult === 'wrong' && !retriedCardsRef.current.has(retryKey)) {
+      retriedCardsRef.current.add(retryKey);
+      const entry = { item, addedAtIndex: currentIndexRef.current };
+      pendingPoolRef.current = [...pendingPoolRef.current, entry];
+      setPendingPool(prev => [...prev, entry]);
+    }
+
+    moveToNext();
+  }, [persistReview, recordResult, moveToNext]);
+
   const handleSubmitAnswer = useCallback(() => {
     if (!currentItem || !typedAnswer.trim()) return;
 
-    const usedMode = effectiveMode(currentItem);
-    let matchResult: 'correct' | 'almost' | 'wrong';
-
-    if (usedMode === 'typed_nl_it') {
-      // NL → IT: accepteer ook synoniemen
-      matchResult = fuzzyMatchWithAlternatives(typedAnswer, currentItem.word.original, synonymOriginals);
-    } else if (usedMode === 'typed_it_nl') {
-      // IT → NL
-      matchResult = fuzzyMatch(typedAnswer, currentItem.word.translation);
-    } else {
-      // listen_type / fill_blank: exacte IT-spelling
-      matchResult = fuzzyMatch(typedAnswer, currentItem.word.original);
-    }
+    const usedMode    = effectiveMode(currentItem);
+    const matchResult = evaluateTyped(typedAnswer, currentItem.word, usedMode);
+    const responseMs  = Date.now() - cardStartTimeRef.current;
 
     setAnswerState({ result: matchResult, input: typedAnswer });
-    const responseMs = Date.now() - cardStartTimeRef.current;
 
-    setTimeout(() => {
-      let grade = determineGrade(usedMode, matchResult);
-      grade = adjustGradeBySpeed(grade, usedMode, responseMs, currentItem.word.original.length);
-
-      void persistReview(currentItem, grade, usedMode);
-      recordResult(currentItem.cardId, matchResult === 'correct');
-
-      // Na een correcte luister-kennismaking: ditzelfde woord nog in deze sessie
-      // laten typen, zodat herkenning meteen wordt omgezet in productie.
-      if (usedMode === 'listen_type' && matchResult === 'correct') {
-        const typedItem: QueueItem & { word: Word } = {
-          cardId:  currentItem.cardId,
-          mode:    'typed_nl_it',
-          dueDate: null,
-          word:    currentItem.word,
-        };
-        const entry = { item: typedItem, addedAtIndex: currentIndexRef.current };
-        pendingPoolRef.current = [...pendingPoolRef.current, entry];
-        setPendingPool(prev => [...prev, entry]);
-      }
-
-      // Bij fout: één herkansing later in de sessie
-      const retryKey = currentItem.cardId + usedMode;
-      if (matchResult === 'wrong' && !retriedCardsRef.current.has(retryKey)) {
-        retriedCardsRef.current.add(retryKey);
-        const entry = { item: currentItem, addedAtIndex: currentIndexRef.current };
-        pendingPoolRef.current = [...pendingPoolRef.current, entry];
-        setPendingPool(prev => [...prev, entry]);
-      }
-
-      moveToNext();
-    }, 1500);
-  }, [currentItem, typedAnswer, effectiveMode, synonymOriginals, persistReview, recordResult, moveToNext]);
+    if (matchResult === 'correct') {
+      setTimeout(() => commitTyped(currentItem, usedMode, matchResult, responseMs), 1500);
+    } else {
+      // Pauzeer: geef de kans om een fout opgeslagen woord te corrigeren.
+      pendingCommitRef.current = { item: currentItem, usedMode, responseMs, input: typedAnswer };
+      setPaused(true);
+    }
+  }, [currentItem, typedAnswer, effectiveMode, evaluateTyped, commitTyped]);
 
   const handleSkip = useCallback(() => {
     if (!currentItem) return;
+    const usedMode = effectiveMode(currentItem);
     setAnswerState({ result: 'wrong', input: '' });
+    pendingCommitRef.current = { item: currentItem, usedMode, responseMs: 0, input: '' };
+    setPaused(true);
+  }, [currentItem, effectiveMode]);
 
-    setTimeout(() => {
-      void persistReview(currentItem, 1 /* FORGOT */, currentItem.mode);
-      recordResult(currentItem.cardId, false);
-      moveToNext();
-    }, 1500);
-  }, [currentItem, persistReview, recordResult, moveToNext]);
+  /** 'Verder' op het gepauzeerde feedbackscherm: commit de huidige beoordeling. */
+  const handleContinue = useCallback(() => {
+    const pc = pendingCommitRef.current;
+    if (!pc) return;
+    const result = answerStateRef.current?.result ?? 'wrong';
+    commitTyped(pc.item, pc.usedMode, result, pc.responseMs);
+  }, [commitTyped]);
+
+  /** Sla een correctie op en herbeoordeel het lopende antwoord meteen. */
+  const handleSaveCorrection = useCallback((original: string, translation: string) => {
+    const pc = pendingCommitRef.current;
+    if (!pc || !original || !translation) return;
+
+    void updateWord(pc.item.cardId, { original, translation });
+    setQueue(prev => prev.map(item =>
+      item.cardId === pc.item.cardId
+        ? { ...item, word: { ...item.word, original, translation } }
+        : item
+    ));
+
+    const updatedItem = { ...pc.item, word: { ...pc.item.word, original, translation } };
+    pendingCommitRef.current = { ...pc, item: updatedItem };
+
+    // Herbeoordeel met de nieuwe woordgegevens.
+    const newResult = evaluateTyped(pc.input, updatedItem.word, pc.usedMode);
+    setAnswerState(prev => prev ? { ...prev, result: newResult } : prev);
+    setCorrected(true);
+  }, [updateWord, evaluateTyped]);
 
   const handleFlashcardRate = useCallback((grade: FsrsGrade) => {
     if (!currentItem) return;
@@ -482,6 +550,19 @@ export default function Study() {
           onRate={handleFlashcardRate}
         />
       ) : null}
+
+      {/* Correctie op het feedbackmoment (getypte / luister-kaarten) */}
+      {paused && currentItem && answerState && TYPED_FEEDBACK_MODES.includes(mode) && (
+        <FeedbackCorrection
+          word={currentItem.word}
+          input={answerState.input}
+          mode={mode as 'typed_nl_it' | 'typed_it_nl' | 'listen_type'}
+          result={answerState.result}
+          corrected={corrected}
+          onSave={handleSaveCorrection}
+          onContinue={handleContinue}
+        />
+      )}
 
       {/* Inline edit overlay */}
       {editOpen && currentItem && (
