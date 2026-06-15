@@ -1,0 +1,229 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-15T00:00:00Z",
+  "title": "Design System: Lexis",
+  "extensions": {
+    "colorMeta": {
+      "signal-indigo": {
+        "role": "primary",
+        "displayName": "Signal Indigo",
+        "canonical": "oklch(57% 0.22 292)",
+        "gradientVariant": "linear-gradient(135deg, hsl(265 80% 60%), hsl(280 70% 50%))",
+        "tonalRamp": ["#16052e", "#2c0a5c", "#471093", "#6317cf", "#8b47eb", "#ae7ef1", "#d1b5f7", "#eee3fc"]
+      },
+      "mind-teal": {
+        "role": "secondary",
+        "displayName": "Mind Teal",
+        "canonical": "oklch(80% 0.14 193)",
+        "tonalRamp": ["#082b2b", "#0f5757", "#178282", "#1fadad", "#26d9d9", "#5fe3e3", "#9beded", "#d8f8f8"]
+      },
+      "ember-streak": {
+        "role": "tertiary",
+        "displayName": "Ember Streak",
+        "canonical": "oklch(71% 0.18 48)",
+        "glowValue": "drop-shadow(0 0 6px hsl(28 90% 55% / 0.65)) drop-shadow(0 0 12px hsl(28 90% 55% / 0.35))",
+        "tonalRamp": ["#301803", "#613005", "#9b4d08", "#d56a0b", "#f48525", "#f6a65f", "#fac99e", "#fde9d8"]
+      },
+      "night-canvas": {
+        "role": "neutral",
+        "displayName": "Night Canvas",
+        "canonical": "oklch(12% 0.008 265)",
+        "tonalRamp": ["#060710", "#0e0e11", "#17171c", "#21212a", "#2b2b31", "#42424b", "#868692", "#c8c8d0"]
+      },
+      "ink-surface": {
+        "role": "neutral",
+        "displayName": "Ink Surface",
+        "canonical": "oklch(16% 0.007 265)",
+        "tonalRamp": ["#060710", "#0e0e11", "#17171c", "#21212a", "#2b2b31", "#42424b", "#868692", "#c8c8d0"]
+      },
+      "spring-green": {
+        "role": "semantic-success",
+        "displayName": "Spring Green",
+        "canonical": "oklch(67% 0.14 155)",
+        "tonalRamp": ["#071a10", "#0d3520", "#176640", "#1f9a5f", "#2eb873", "#60cb94", "#9ddcbb", "#d5f2e5"]
+      },
+      "amber-mark": {
+        "role": "semantic-warning",
+        "displayName": "Amber Mark",
+        "canonical": "oklch(78% 0.16 74)",
+        "tonalRamp": ["#2a1e03", "#553d06", "#8a6409", "#c29110", "#f4af25", "#f8c55e", "#fad98f", "#fdf0cc"]
+      },
+      "error-red": {
+        "role": "semantic-error",
+        "displayName": "Error Red",
+        "canonical": "oklch(56% 0.19 25)",
+        "tonalRamp": ["#2d0505", "#5a0a0a", "#921010", "#bc2020", "#dd3c3c", "#e87272", "#f2aaaa", "#fad8d8"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The word under study. One instance per screen, dominant weight."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section headings, card titles, word list primary labels."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Interface copy, descriptions, supporting text. Max 65ch."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Contextual prompts inside study cards. Always uppercase."
+      }
+    },
+    "shadows": [
+      {
+        "name": "structural-float",
+        "value": "0 4px 16px hsl(265 80% 60% / 0.30)",
+        "valueHover": "0 8px 24px hsl(265 80% 60% / 0.40)",
+        "purpose": "Floating study CTA in bottom nav. Indigo-tinted shadow signals elevation and indigo brand."
+      },
+      {
+        "name": "ambient-low",
+        "value": "0 1px 3px rgba(0, 0, 0, 0.40)",
+        "purpose": "Cards at rest against Night Canvas. Minimal — imperceptible at a glance, present on inspection."
+      },
+      {
+        "name": "pulse-glow",
+        "value": "0 0 20px hsl(265 80% 60% / 0.30)",
+        "valuePeak": "0 0 40px hsl(265 80% 60% / 0.50)",
+        "purpose": "Animated pulsing glow on the study CTA button. Runs on a 2s ease-in-out infinite keyframe."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.4, 0.0, 0.2, 1)",
+        "duration": "0.2s",
+        "purpose": "Default for color/opacity state transitions (button hover, active states)."
+      },
+      {
+        "name": "slide-up",
+        "value": "cubic-bezier(0.0, 0.0, 0.2, 1)",
+        "duration": "0.3s",
+        "purpose": "Answer feedback panel entering from below. `translateY(10px) → translateY(0)` with opacity."
+      },
+      {
+        "name": "flip-in",
+        "value": "cubic-bezier(0.0, 0.0, 0.2, 1)",
+        "duration": "0.4s",
+        "purpose": "Card content flip on new word. `rotateY(90deg) → rotateY(0)` with opacity."
+      },
+      {
+        "name": "accordion",
+        "value": "ease-out",
+        "duration": "0.2s",
+        "purpose": "Accordion expand/collapse. Animates height via Radix `--radix-accordion-content-height`."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm",  "value": "640px",  "note": "Tailwind sm — rarely targeted directly." },
+      { "name": "md",  "value": "768px",  "note": "Primary layout switch: bottom-nav → desktop sidebar." },
+      { "name": "lg",  "value": "1024px", "note": "Content width expansion." },
+      { "name": "xl",  "value": "1280px", "note": "Max content container." },
+      { "name": "2xl", "value": "1400px", "note": "Container max-width cap (Tailwind container config)." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main action. One per screen. Gradient Signal Indigo fill.",
+      "html": "<button class=\"ds-btn-primary\">Controleer</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 16px; background: linear-gradient(135deg, hsl(265 80% 60%), hsl(280 70% 50%)); color: #f2f2f2; font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; border: none; border-radius: 10px; cursor: pointer; white-space: nowrap; transition: opacity 0.15s ease-out; outline: none; } .ds-btn-primary:hover { opacity: 0.9; } .ds-btn-primary:focus-visible { box-shadow: 0 0 0 2px #8b47eb, 0 0 0 4px #17171c; } .ds-btn-primary:active { opacity: 0.85; } .ds-btn-primary:disabled { pointer-events: none; opacity: 0.5; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary and skip actions. Transparent at rest, Surface Dim on hover.",
+      "html": "<button class=\"ds-btn-ghost\">Ik weet het niet</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 16px; background: transparent; color: #868692; font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 600; border: none; border-radius: 10px; cursor: pointer; white-space: nowrap; transition: background 0.15s ease-out, color 0.15s ease-out; outline: none; } .ds-btn-ghost:hover { background: #26262b; color: #f2f2f2; } .ds-btn-ghost:focus-visible { box-shadow: 0 0 0 2px #8b47eb, 0 0 0 4px #17171c; } .ds-btn-ghost:disabled { pointer-events: none; opacity: 0.5; }"
+    },
+    {
+      "name": "Destructive-Context Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Skip / give-up action in the study flow. Error Red tint treatment.",
+      "html": "<button class=\"ds-btn-destructive\">Ik weet het niet</button>",
+      "css": ".ds-btn-destructive { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 44px; padding: 0 16px; background: rgba(221, 60, 60, 0.10); color: #dd3c3c; font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 600; border: 1px solid rgba(221, 60, 60, 0.30); border-radius: 12px; cursor: pointer; transition: background 0.15s ease-out; outline: none; } .ds-btn-destructive:hover { background: rgba(221, 60, 60, 0.20); } .ds-btn-destructive:focus-visible { box-shadow: 0 0 0 2px #dd3c3c; }"
+    },
+    {
+      "name": "Study Input",
+      "kind": "input",
+      "refersTo": "input-study",
+      "description": "The primary answer input on the study screen. Centered text, prominent size.",
+      "html": "<input class=\"ds-input-study\" type=\"text\" placeholder=\"Typ het Italiaanse woord...\" />",
+      "css": ".ds-input-study { display: block; width: 100%; padding: 14px 16px; background: #17171c; border: 1px solid #2b2b31; border-radius: 12px; color: #f2f2f2; font-family: 'Manrope', sans-serif; font-size: 18px; font-weight: 400; text-align: center; box-sizing: border-box; outline: none; transition: border-color 0.15s ease-out, box-shadow 0.15s ease-out; } .ds-input-study::placeholder { color: rgba(134, 134, 146, 0.50); } .ds-input-study:focus { border-color: rgba(139, 71, 235, 0.50); box-shadow: 0 0 0 3px rgba(139, 71, 235, 0.20); }"
+    },
+    {
+      "name": "Standard Input",
+      "kind": "input",
+      "refersTo": "input-default",
+      "description": "Default text field for search and form use.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Zoeken...\" />",
+      "css": ".ds-input { display: flex; height: 40px; width: 100%; padding: 8px 12px; background: #0e0e11; border: 1px solid #2b2b31; border-radius: 10px; color: #f2f2f2; font-family: 'Manrope', sans-serif; font-size: 14px; box-sizing: border-box; outline: none; transition: box-shadow 0.15s ease-out; } .ds-input::placeholder { color: #868692; } .ds-input:focus { box-shadow: 0 0 0 2px rgba(139, 71, 235, 0.25); } .ds-input:disabled { cursor: not-allowed; opacity: 0.50; }"
+    },
+    {
+      "name": "Glass Card",
+      "kind": "card",
+      "refersTo": "card-default",
+      "description": "Study prompt container and feedback panels. Frosted glass treatment for focused surfaces.",
+      "html": "<div class=\"ds-glass-card\"><span class=\"ds-glass-card-label\">Vertaal naar het Italiaans</span><h2 class=\"ds-glass-card-word\">il libro</h2></div>",
+      "css": ".ds-glass-card { background: rgba(23, 23, 28, 0.80); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(43, 43, 49, 0.50); border-radius: 16px; padding: 32px; text-align: center; } .ds-glass-card-label { display: block; font-family: 'Manrope', sans-serif; font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: #868692; margin-bottom: 12px; } .ds-glass-card-word { font-family: 'Space Grotesk', sans-serif; font-size: clamp(1.875rem, 5vw, 2.25rem); font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: #f2f2f2; margin: 0; }"
+    },
+    {
+      "name": "Streak Badge",
+      "kind": "custom",
+      "description": "Momentum indicator. Cold when streak is idle, ignited when the user has studied today.",
+      "html": "<div class=\"ds-streak-badge ds-streak-active\"><svg class=\"ds-streak-icon\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M17.66 11.2C17.43 10.9 17.15 10.64 16.89 10.38C16.22 9.78 15.46 9.35 14.82 8.72C13.33 7.26 13 4.85 13.95 3C13 3.23 12.17 3.75 11.46 4.32C8.87 6.4 7.85 10.07 9.07 13.22C9.11 13.32 9.15 13.42 9.15 13.55C9.15 13.77 9 13.97 8.8 14.05C8.57 14.15 8.33 14.09 8.14 13.93C8.08 13.88 8.04 13.83 8 13.76C6.87 12.33 6.69 10.28 7.45 8.64C5.78 10 4.87 12.3 5 14.47C5.06 14.97 5.12 15.47 5.29 15.97C5.43 16.57 5.7 17.17 6 17.7C7.08 19.43 8.95 20.67 10.96 20.92C13.1 21.19 15.39 20.8 17.03 19.32C18.86 17.66 19.5 15 18.56 12.72L18.43 12.46C18.22 12 17.66 11.2 17.66 11.2Z\"/></svg><span class=\"ds-streak-count\">7</span></div>",
+      "css": ".ds-streak-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 9999px; background: #26262b; font-family: 'Manrope', sans-serif; font-size: 14px; font-weight: 700; color: #f2f2f2; } .ds-streak-icon { color: #868692; flex-shrink: 0; } .ds-streak-badge.ds-streak-active { background: rgba(244, 133, 37, 0.15); } .ds-streak-badge.ds-streak-active .ds-streak-icon { color: #f48525; filter: drop-shadow(0 0 6px rgba(244, 133, 37, 0.65)) drop-shadow(0 0 12px rgba(244, 133, 37, 0.35)); } .ds-streak-count { line-height: 1; }"
+    },
+    {
+      "name": "Floating Study CTA",
+      "kind": "button",
+      "description": "The center button in the bottom navigation bar. The app's most important affordance.",
+      "html": "<button class=\"ds-study-cta\" aria-label=\"Begin studeren\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M22 10v6M2 10l10-5 10 5-10 5z\"/><path d=\"M6 12v5c3 3 9 3 12 0v-5\"/></svg></button>",
+      "css": ".ds-study-cta { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg, hsl(265 80% 60%), hsl(280 70% 50%)); border: none; cursor: pointer; color: #f2f2f2; margin-top: -20px; box-shadow: 0 4px 16px rgba(139, 71, 235, 0.30); transition: box-shadow 0.15s ease-out, transform 0.15s ease-out; outline: none; } .ds-study-cta:hover { box-shadow: 0 8px 24px rgba(139, 71, 235, 0.40); transform: translateY(-2px); } .ds-study-cta:focus-visible { box-shadow: 0 0 0 3px #8b47eb, 0 0 0 5px #0e0e11; } .ds-study-cta:active { transform: translateY(0); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Capable Companion",
+    "overview": "Lexis is the app that earns your trust by staying out of your way. The interface is dark and focused: a learner on the metro, phone in hand, running through Italian words before work. The screen glows softly in dim ambient light. Everything unnecessary has been stripped. One word, one action, one result.\n\nThe system earns confidence through precision, not drama. Signal Indigo — the one chromatic voice — appears sparingly: on primary action buttons, focus rings, the floating study CTA. It never competes with itself. The rest of the palette is tonal dark: near-blacks and deep charcoals with a faint blue undertone, keeping the eye rested and the word in focus.\n\nThis system explicitly rejects the clutter of tools like Anki, the gratuitous celebration of XP-explosion apps, and the information density of enterprise dashboards. Every screen has one clear primary action, and that action is impossible to miss.",
+    "keyCharacteristics": [
+      "Dark, focused, deliberately spacious",
+      "One chromatic voice (Signal Indigo); supporting colors appear only in their semantic contexts",
+      "Space communicates quality: generous padding signals that each element matters",
+      "Two-font pairing — Space Grotesk for structure, Manrope for content — precision with human warmth",
+      "Motion is responsive to state, never decorative"
+    ],
+    "rules": [
+      { "name": "The One Voice Rule", "body": "Signal Indigo appears on at most one primary surface per screen. The gradient button and the floating CTA never coexist at full opacity. The solid variant (focus ring, active nav dot) is the second permitted use. That is the budget.", "section": "colors" },
+      { "name": "The Semantic-Only Rule", "body": "Spring Green, Amber Mark, and Error Red are feedback states. Never use them as decorative accents, labels, or background tints outside answer-result and status contexts.", "section": "colors" },
+      { "name": "The Single-Word Rule", "body": "Display-scale type (Space Grotesk 700, ≥1.875rem) exists for the word being studied, and nothing else. Navigation labels, statistics, and headings are never display-scale.", "section": "typography" },
+      { "name": "The Glass-By-Exception Rule", "body": "backdrop-filter: blur appears on the study card container and the top/bottom navigation bars only. Every additional surface that receives it dilutes the signal. Glass communicates 'focused attention surface'; when everything is glass, nothing is.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use Signal Indigo for one primary action per screen. If two actions compete for the indigo budget, one must be ghost or secondary.",
+      "Do reserve the glass-card treatment for the study focus surface only. Every other surface uses solid Ink Surface.",
+      "Do use label type (0.625rem, uppercase, letter-spacing 0.08em) for all contextual prompts inside study cards.",
+      "Do keep the study input centered with 18px text — it is the user's primary point of attention on that screen.",
+      "Do ensure every tap target is at minimum 44x44px on mobile.",
+      "Do suppress pulse-glow and streak-flame animations when prefers-reduced-motion: reduce is active.",
+      "Do reserve Ember Streak for the streak badge, and only when the user has studied today."
+    ],
+    "donts": [
+      "Don't build Anki-style density: no feature-list UI, no information overload on a screen that should have one primary task.",
+      "Don't add gamification overdose: no confetti, XP explosion overlays, or full-screen reward animations.",
+      "Don't use gradient text (-webkit-background-clip: text with a gradient fill). The text-gradient-primary utility is a legacy pattern — replace with solid Signal Indigo.",
+      "Don't apply glass-card / backdrop-blur as a default surface treatment.",
+      "Don't use border-left or border-right greater than 1px as a colored accent stripe on any element.",
+      "Don't build identical card grids (same-sized cards with icon + heading + text in a repeat loop).",
+      "Don't put multiple competing stat widgets on the first screen a user sees.",
+      "Don't use Mind Teal or Ember Streak as decorative accents outside their semantic roles."
+    ]
+  }
+}
