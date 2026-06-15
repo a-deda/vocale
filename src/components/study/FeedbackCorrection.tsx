@@ -16,14 +16,16 @@ interface FeedbackCorrectionProps {
   corrected: boolean;
   /** Sla de aangepaste velden op (persisteert + herbeoordeelt). */
   onSave: (original: string, translation: string) => void;
+  /** Reken dit antwoord toch goed (overschrijf de beoordeling). */
+  onMarkCorrect: () => void;
   /** Ga door naar de volgende kaart (commit huidige beoordeling). */
   onContinue: () => void;
 }
 
 export default function FeedbackCorrection({
-  word, input, mode, result, corrected, onSave, onContinue,
+  word, input, mode, result, corrected, onSave, onMarkCorrect, onContinue,
 }: FeedbackCorrectionProps) {
-  const [expanded, setExpanded]       = useState(false);
+  const [expanded, setExpanded]               = useState(false);
   const [editOriginal, setEditOriginal]       = useState(word.original);
   const [editTranslation, setEditTranslation] = useState(word.translation);
 
@@ -32,6 +34,7 @@ export default function FeedbackCorrection({
 
   // De getypte kant: bij IT→NL typte je het Nederlands, anders het Italiaans.
   const typedDutch = mode === 'typed_it_nl';
+  const canMarkCorrect = result !== 'correct' && input.trim().length > 0;
 
   useEffect(() => {
     if (!expanded) continueRef.current?.focus();
@@ -64,7 +67,7 @@ export default function FeedbackCorrection({
     <div className="mt-4 space-y-3">
       {corrected && (
         <div className="flex items-center gap-2 text-sm text-success">
-          <Check className="h-4 w-4" />
+          <Check className="h-4 w-4 shrink-0" />
           <span>Aangepast — beoordeling bijgewerkt naar <strong>{
             result === 'correct' ? 'Goed' : result === 'almost' ? 'Bijna' : 'Fout'
           }</strong></span>
@@ -97,7 +100,7 @@ export default function FeedbackCorrection({
             <button
               type="button"
               onClick={useMyAnswer}
-              className="text-xs text-primary hover:underline"
+              className="text-xs text-primary hover:underline text-left"
             >
               {typedDutch
                 ? `Mijn antwoord toevoegen als betekenis: «${input.trim()}»`
@@ -122,25 +125,37 @@ export default function FeedbackCorrection({
           </div>
         </div>
       ) : (
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={expand}
-            className="flex items-center justify-center gap-1.5 rounded-xl bg-secondary text-secondary-foreground px-4 py-3 text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            <Pencil className="h-4 w-4" />
-            Woord aanpassen
-          </button>
-          <button
-            ref={continueRef}
-            type="button"
-            onClick={onContinue}
-            className="flex-1 flex items-center justify-center gap-1.5 rounded-xl gradient-primary text-primary-foreground px-6 py-3 text-sm font-semibold"
-          >
-            Verder
-            <ArrowRight className="h-4 w-4" />
-          </button>
-        </div>
+        <>
+          {canMarkCorrect && (
+            <button
+              type="button"
+              onClick={onMarkCorrect}
+              className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-success/10 border border-success/30 text-success px-4 py-2.5 text-sm font-semibold hover:bg-success/20 transition-colors"
+            >
+              <Check className="h-4 w-4" />
+              Toch goed rekenen
+            </button>
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={expand}
+              className="flex items-center justify-center gap-1.5 rounded-xl bg-secondary text-secondary-foreground px-4 py-3 text-sm font-medium hover:opacity-90 transition-opacity"
+            >
+              <Pencil className="h-4 w-4" />
+              Woord aanpassen
+            </button>
+            <button
+              ref={continueRef}
+              type="button"
+              onClick={onContinue}
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-xl gradient-primary text-primary-foreground px-6 py-3 text-sm font-semibold"
+            >
+              Verder
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
