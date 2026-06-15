@@ -72,3 +72,31 @@ Route was `/wordbank`; de correcte route is `/toevoegen`.
 
 - [x] Link "Bekijk alle →" gecorrigeerd naar `/toevoegen`
 - [x] Klikbare rijen in de 'Lastigste woorden'-lijst ook gecorrigeerd
+
+---
+
+## 8. Woorden-algoritme – introductie strikt scheiden van productie
+
+Eis: luisteren/meerkeuze zijn uitsluitend kennismakingsvormen voor gloednieuwe
+woorden. Zodra een woord geïntroduceerd is, moet het altijd getypt worden.
+
+- [x] `buildSession` herschreven naar drie heldere situaties: getypt → getypte
+      reviews; geïntroduceerd-maar-niet-getypt → typen; gloednieuw → één
+      kennismaking (luisteren óf meerkeuze)
+- [x] Luisteren/meerkeuze komen nooit meer terug als (overdue) review zodra een
+      woord ooit gezien is — dat was de oude bron van herhaalde herkenning
+- [x] Na een correcte luister-kennismaking wordt het woord, net als bij
+      meerkeuze, in dezelfde sessie alsnog getypt (herkenning → productie)
+- [x] Unit-tests (`src/lib/fsrs.test.ts`) bewaken de invariant, incl. een
+      willekeurige-mix-test ("blijf nagaan")
+
+---
+
+## 9. Stats – correct & consistent
+
+- [x] Woordenbank-beheersing gebruikt nu `getFsrsMasteryScore` i.p.v. de legacy
+      SM-2 `getMasteryScore` (las velden die FSRS nooit bijwerkt → altijd te laag)
+- [x] `words_studied` per sessie telt unieke woorden i.p.v. élke getoonde kaart
+      (intro + getypte follow-up + herkansingen) → eerlijke dag-/doeltellingen
+- [x] Sessietellers (woorden/goed/fout) afgeleid uit één per-woord eindresultaat,
+      zodat `goed + fout = woorden` en de laatste-antwoord-off-by-one weg is

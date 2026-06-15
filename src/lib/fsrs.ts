@@ -205,66 +205,80 @@ export function adjustGradeBySpeed(
 
 // ─── SESSIE OPBOUWEN ─────────────────────────────────────────────────────────
 
-const PRIORITY: FsrsMode[] = [
-  'listen_type', // stap 1: eerste kennismaking via audio
-  'mc',          // stap 2: herkenning via meerkeuze
-  'typed_nl_it', // stap 3: productie (zwaarst)
-];
+// Mode waarin geïntroduceerde woorden geproduceerd worden (typen, NL → IT).
+const TYPED_MODE: FsrsMode = 'typed_nl_it';
 
-const MAX_NEW_LISTEN = 7;
+// Van de gloednieuwe woorden in één sessie krijgen er hooguit zoveel een
+// luister-intro; de rest wordt via meerkeuze geïntroduceerd. Zo blijft het
+// aandeel audio-oefeningen behapbaar.
+const MAX_NEW_INTRO_LISTEN = 7;
 
+/**
+ * Bouw de wachtrij voor een studiesessie.
+ *
+ * Kernregel (zie PRODUCT-doel): luisteren en meerkeuze zijn uitsluitend
+ * kennismakings­vormen voor gloednieuwe woorden. Zodra een woord op welke
+ * manier dan ook is geïntroduceerd, wordt het altijd getypt — nooit meer
+ * via luisteren of meerkeuze.
+ *
+ * Per woord geldt dus exact één van drie situaties:
+ *   1. Al getypt (heeft `typed_nl_it`-state) → enkel getypte reviews als ze due zijn.
+ *   2. Geïntroduceerd via luisteren/meerkeuze maar nog niet getypt → moet nú getypt.
+ *   3. Gloednieuw (geen enkele state) → één kennismaking via luisteren óf meerkeuze.
+ */
 export function buildSession(
   cardStates: Record<string, Partial<Record<FsrsMode, FsrsState>>>,
   today: string,
   maxReviews: number,
 ): QueueItem[] {
-  const overdue:   QueueItem[] = [];
-  const listenNew: QueueItem[] = [];
-  const mcNew:     QueueItem[] = [];
-  const typedNew:  QueueItem[] = [];
+  const overdue:  QueueItem[] = []; // getypte reviews die due zijn (situatie 1)
+  const toType:   QueueItem[] = []; // geïntroduceerd maar nog niet getypt (situatie 2)
+  const brandNew: string[]    = []; // nog nooit gezien (situatie 3)
 
   for (const cardId of Object.keys(cardStates)) {
-    const states = cardStates[cardId];
-    const hasTyped = !!states?.['typed_nl_it'];
+    const states = cardStates[cardId] ?? {};
+    const hasTyped    = !!states[TYPED_MODE];
+    const hasAnyState = FSRS_MODES.some(m => !!states[m]);
 
-    for (let mi = 0; mi < PRIORITY.length; mi++) {
-      const mode = PRIORITY[mi];
-
-      // Listen en MC zijn intro-stappen; zodra het woord ooit getypt is,
-      // komen alleen nog typed-reviews terug.
-      if (hasTyped && (mode === 'listen_type' || mode === 'mc')) continue;
-
-      const s = states?.[mode];
-      if (!s) {
-        // Als een latere mode al een state heeft, is dit woord al verder in de
-        // pipeline dan deze introstap → overslaan, niet opnieuw introduceren.
-        const alreadyAdvanced = PRIORITY.slice(mi + 1).some(m => states?.[m]);
-        if (alreadyAdvanced) continue;
-        if (mode === 'listen_type') listenNew.push({ cardId, mode, dueDate: null });
-        else if (mode === 'mc')     mcNew.push({ cardId, mode, dueDate: null });
-        else                        typedNew.push({ cardId, mode, dueDate: null });
-        break;
-      }
+    if (hasTyped) {
+      // Situatie 1: al geïntroduceerd én getypt → uitsluitend getypte reviews.
+      const s = states[TYPED_MODE]!;
       if (s.dueDate && s.dueDate <= today) {
-        overdue.push({ cardId, mode, dueDate: s.dueDate });
-        break;
+        overdue.push({ cardId, mode: TYPED_MODE, dueDate: s.dueDate });
       }
-      // Gedaan maar nog niet due → probeer volgende mode
+      continue;
     }
+
+    if (hasAnyState) {
+      // Situatie 2: ooit gezien (luisteren/meerkeuze), maar nog niet via typen
+      // geproduceerd → de enige volgende stap is typen, nooit opnieuw herkennen.
+      toType.push({ cardId, mode: TYPED_MODE, dueDate: null });
+      continue;
+    }
+
+    // Situatie 3: gloednieuw woord, nog nooit gezien.
+    brandNew.push(cardId);
   }
 
-  // Sorteer op oudste due-datum eerst, dan cap op maxReviews zodat een sessie
-  // nooit ongelimiteerd groeit bij een grote achterstand.
+  // Verdeel nieuwe woorden over luister- en meerkeuze-intro's.
+  fisherYates(brandNew);
+  const recognitionNew: QueueItem[] = brandNew.map((cardId, idx) => ({
+    cardId,
+    mode:    idx < MAX_NEW_INTRO_LISTEN ? 'listen_type' : 'mc',
+    dueDate: null,
+  }));
+
+  // Oudste due-datum eerst; cap op maxReviews zodat een sessie nooit
+  // ongelimiteerd groeit bij een grote achterstand.
   overdue.sort((a, b) => a.dueDate!.localeCompare(b.dueDate!));
   const cappedOverdue = overdue.slice(0, maxReviews);
 
-  fisherYates(listenNew);
-  fisherYates(mcNew);
-  fisherYates(typedNew);
+  fisherYates(toType);
+  fisherYates(recognitionNew);
 
-  const freeSlots    = Math.max(0, maxReviews - cappedOverdue.length);
-  const cappedListen = listenNew.slice(0, MAX_NEW_LISTEN);
-  const pools        = [cappedListen, mcNew, typedNew].filter(p => p.length > 0);
+  // Vul de resterende ruimte afwisselend met te-typen en nieuwe woorden.
+  const freeSlots = Math.max(0, maxReviews - cappedOverdue.length);
+  const pools     = [toType, recognitionNew].filter(p => p.length > 0);
 
   const pool: QueueItem[] = [];
   let i = 0;
