@@ -464,18 +464,18 @@ export default function Study() {
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center animate-slide-up">
         <div className="text-6xl mb-4">⚡</div>
         <h2 className="text-2xl font-bold text-foreground">Sessie Voltooid!</h2>
-        <div className="grid grid-cols-3 gap-4 mt-6 w-full max-w-sm">
-          <div className="glass-card rounded-xl p-4">
+        <div className="grid grid-cols-3 gap-3 mt-6 w-full max-w-sm">
+          <div className="bg-card border border-border rounded-xl p-4">
             <p className="text-2xl font-bold text-foreground">{finalStats.words}</p>
-            <p className="text-[10px] text-muted-foreground uppercase">Woorden</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Woorden</p>
           </div>
-          <div className="glass-card rounded-xl p-4">
+          <div className="bg-card border border-border rounded-xl p-4">
             <p className="text-2xl font-bold text-success">{finalStats.correct}</p>
-            <p className="text-[10px] text-muted-foreground uppercase">Goed</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Goed</p>
           </div>
-          <div className="glass-card rounded-xl p-4">
+          <div className="bg-card border border-border rounded-xl p-4">
             <p className="text-2xl font-bold text-foreground">{Math.floor(totalTime / 60)}:{String(totalTime % 60).padStart(2, '0')}</p>
-            <p className="text-[10px] text-muted-foreground uppercase">Tijd</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Tijd</p>
           </div>
         </div>
         <button onClick={() => navigate('/')} className="mt-6 gradient-primary rounded-lg px-6 py-2.5 text-sm font-semibold text-primary-foreground">
@@ -593,7 +593,7 @@ export default function Study() {
             <h3 className="text-sm font-semibold text-foreground mb-4">Woord aanpassen</h3>
             <div className="space-y-3">
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Italiaans</label>
+                <label className="text-xs text-muted-foreground">Italiaans</label>
                 <input
                   value={editOriginal}
                   onChange={e => setEditOriginal(e.target.value)}
@@ -601,7 +601,7 @@ export default function Study() {
                 />
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Nederlands</label>
+                <label className="text-xs text-muted-foreground">Nederlands</label>
                 <input
                   value={editTranslation}
                   onChange={e => setEditTranslation(e.target.value)}

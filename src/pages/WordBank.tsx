@@ -211,12 +211,12 @@ export default function WordBank() {
         <p className="text-sm text-muted-foreground mt-1">Voeg woorden toe aan je woordenbank.</p>
       </div>
 
-      <div className="glass-card rounded-xl p-5">
+      <div className="bg-card border border-border rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Zap className="h-4 w-4 text-accent" />
-            <h3 className="text-sm font-semibold text-foreground">Snel Invoeren</h3>
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Eén woord per regel</span>
+            <Zap className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">Snel invoeren</h3>
+            <span className="text-xs text-muted-foreground">één woord per regel</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Auto-vertalen</span>
@@ -240,7 +240,7 @@ export default function WordBank() {
       </div>
 
       {pendingWords.length > 0 && (
-        <div className="glass-card rounded-xl p-5">
+        <div className="bg-card border border-border rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-foreground">
               Te bevestigen ({pendingWords.length})
@@ -248,7 +248,7 @@ export default function WordBank() {
             <button
               onClick={handleConfirmAll}
               disabled={pendingWords.some(p => p.translating)}
-              className="flex items-center gap-1.5 gradient-accent rounded-lg px-4 py-1.5 text-xs font-semibold text-accent-foreground disabled:opacity-40"
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-4 py-1.5 text-xs font-medium text-foreground hover:bg-secondary/80 disabled:opacity-40 transition-colors"
             >
               <Check className="h-3.5 w-3.5" /> Alles Bevestigen
             </button>
@@ -316,10 +316,10 @@ export default function WordBank() {
               const isEditing = editingWordId === word.id;
 
               return (
-                <div key={word.id} className="glass-card rounded-xl p-4 group">
+                <div key={word.id} className="bg-card border border-border rounded-xl p-4 group">
                   <div className="flex items-start justify-between">
-                    <span className={`text-[9px] uppercase tracking-wider font-medium ${
-                      word.status === 'new' ? 'text-accent' :
+                    <span className={`text-[10px] font-medium ${
+                      word.status === 'new' ? 'text-primary' :
                       word.status === 'learning' ? 'text-warning' :
                       word.status === 'review' ? 'text-primary' : 'text-success'
                     }`}>

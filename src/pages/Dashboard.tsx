@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Flame, Zap, BookOpen, TrendingUp, ChevronRight, Clock, Target } from 'lucide-react';
+import { Flame, BookOpen, TrendingUp, ChevronRight } from 'lucide-react';
 import { useStore } from '@/components/StoreProvider';
 import { buildSession, getFsrsMasteryScore } from '@/lib/fsrs';
 import type { FsrsMode, FsrsState } from '@/lib/fsrs';
@@ -49,13 +49,11 @@ export default function Dashboard() {
 
   const { greeting, session } = getDayPart(new Date().getHours());
 
-  // Gebruik lokale datum (niet UTC) zodat het klopt voor gebruikers in UTC+1/+2
   const localToday = (() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   })();
 
-  // Bereken de echte FSRS-sessie (identiek aan Study.tsx) voor teller + preview
   const { dueCount, dueWords } = useMemo(() => {
     const allCardStates: Record<string, Partial<Record<FsrsMode, FsrsState>>> = {};
     for (const w of words) {
@@ -69,7 +67,6 @@ export default function Dashboard() {
     return { dueCount: session.length, dueWords: preview };
   }, [words, fsrsStates, localToday]);
 
-  // Woorden gereviewd vandaag (lokale datum)
   const todayLearned = sessions
     .filter(s => {
       const d = new Date(s.date);
@@ -78,12 +75,10 @@ export default function Dashboard() {
     })
     .reduce((sum, s) => sum + s.wordsStudied, 0);
 
-  // Alleen 'vandaag voltooid' als lastStudyDate écht vandaag is
   const studiedToday = stats.lastStudyDate === localToday;
   const progressPercent = stats.dailyGoal > 0 ? Math.min(100, Math.round((todayLearned / stats.dailyGoal) * 100)) : 0;
   const avgMastery = words.length > 0 ? Math.round(words.reduce((sum, w) => sum + getFsrsMasteryScore(fsrsStates[w.id] ?? {}), 0) / words.length) : 0;
 
-  // Build last 7 days chart data from real sessions (use local date keys)
   const weekData = useMemo(() => {
     const dayLabels = ['zo', 'ma', 'di', 'wo', 'do', 'vr', 'za'];
     const localKey = (d: Date) =>
@@ -119,122 +114,82 @@ export default function Dashboard() {
 
   const weekTotals = useMemo(() => {
     const totalWords = weekData.reduce((s, d) => s + d.words, 0);
-    const totalMinutes = weekData.reduce((s, d) => s + d.minutes, 0);
     const activeDays = weekData.filter(d => d.words > 0).length;
     const avgPerActive = activeDays > 0 ? Math.round(totalWords / activeDays) : 0;
-    const best = weekData.reduce((m, d) => (d.words > m ? d.words : m), 0);
-    return { totalWords, totalMinutes, activeDays, avgPerActive, best };
+    return { totalWords, activeDays, avgPerActive };
   }, [weekData]);
-  const randomWord = words.length > 0 ? words[Math.floor(Math.random() * words.length)] : null;
 
   return (
-    <div className="space-y-6 animate-slide-up">
+    <div className="space-y-5 animate-slide-up">
       {/* Greeting */}
       <div>
         <h1 className="text-2xl md:text-3xl font-bold text-foreground">
-          {greeting}{firstName ? ', ' : ''}
-          {firstName && <span className="text-gradient-primary">{firstName}.</span>}
+          {greeting}{firstName ? `, ${firstName}.` : '.'}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Klaar om je volgende {stats.dailyGoal} woorden te leren?
+          {dueCount > 0 ? `${dueCount} woorden klaar voor herhaling.` : 'Alles bijgewerkt voor nu.'}
         </p>
       </div>
 
-      {/* CTA Card */}
+      {/* CTA */}
       <button
         onClick={() => navigate('/studeren')}
-        className="w-full gradient-primary rounded-2xl p-6 text-left transition-all hover:opacity-95 active:scale-[0.98] shadow-lg shadow-primary/20"
+        className="w-full gradient-primary rounded-xl p-6 text-left transition-all hover:opacity-95 active:scale-[0.98] shadow-lg shadow-primary/20"
       >
-        <p className="text-[10px] uppercase tracking-widest text-primary-foreground/70 font-medium">
-          algoritmisch geoptimaliseerd
-        </p>
-        <h2 className="text-xl md:text-2xl font-bold text-primary-foreground mt-2">
+        <h2 className="text-xl md:text-2xl font-bold text-primary-foreground">
           Start je {session}
         </h2>
         <p className="text-sm text-primary-foreground/80 mt-2">
-          {dueCount} woorden staan klaar voor herhaling. Focus op je zwakke punten.
+          {dueCount} woorden staan klaar. Focus op je zwakste punten.
         </p>
-        <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-background/20 px-4 py-2 text-sm font-semibold text-primary-foreground backdrop-blur-sm">
+        <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary-foreground/90">
           Verder leren <ChevronRight className="h-4 w-4" />
         </div>
       </button>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {/* Streak */}
-        <div className="glass-card rounded-xl p-4 text-center relative">
-          {stats.streakFreezes > 0 && (
-            <div className="absolute top-2 right-2 flex items-center gap-0.5 rounded-full bg-primary/15 px-1.5 py-0.5" title={`${stats.streakFreezes} streak freeze${stats.streakFreezes === 1 ? '' : 's'}`}>
-              <span className="text-[10px]">❄️</span>
-              <span className="text-[10px] font-bold text-primary">{stats.streakFreezes}</span>
-            </div>
-          )}
-          <Flame
-            className={`h-8 w-8 mx-auto ${studiedToday ? 'flame-active' : 'text-streak'}`}
-            aria-label={studiedToday ? 'Vandaag al geoefend' : 'Nog niet geoefend vandaag'}
-          />
-          <p className="text-3xl font-bold text-foreground mt-2">{stats.currentStreak}</p>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-            {studiedToday ? 'Vandaag voltooid' : 'Dag Streak'}
-          </p>
-          <div className="flex gap-1 mt-3 justify-center">
-            {Array.from({ length: 7 }).map((_, i) => (
-              <div
-                key={i}
-                className={`h-1.5 w-6 rounded-full ${i < Math.min(stats.currentStreak, 7) ? 'bg-streak' : 'bg-border'}`}
-              />
-            ))}
+      {/* Status bar: streak + daily progress */}
+      <div className="flex items-center gap-4 bg-card border border-border rounded-xl px-4 py-3">
+        <div className="flex items-center gap-2.5 shrink-0">
+          <Flame className={`h-5 w-5 ${studiedToday ? 'flame-active' : 'text-streak'}`} />
+          <div>
+            <p className="text-sm font-bold text-foreground leading-none">{stats.currentStreak}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{studiedToday ? 'Vandaag voltooid' : 'Dagenstreak'}</p>
           </div>
         </div>
-
-        {/* Today's Progress */}
-        <div className="glass-card rounded-xl p-4">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Voortgang Vandaag</p>
-            <Zap className="h-5 w-5 text-accent" />
+        <div className="w-px h-8 bg-border shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex justify-between items-baseline mb-1.5">
+            <p className="text-xs text-muted-foreground">{todayLearned} van {stats.dailyGoal} woorden vandaag</p>
+            <p className="text-xs font-medium text-foreground">{progressPercent}%</p>
           </div>
-          <p className="text-3xl font-bold text-foreground mt-2">{progressPercent}%</p>
-          <Progress value={progressPercent} className="mt-3 h-2 bg-border" />
-          <div className="flex justify-between mt-2">
-            <span className="text-[10px] text-muted-foreground">{todayLearned} Geleerd</span>
-            <span className="text-[10px] text-muted-foreground">{stats.dailyGoal} Doel</span>
-          </div>
+          <Progress value={progressPercent} className="h-1.5 bg-border" />
         </div>
-
-        {/* Word of the Day */}
-        {randomWord && (
-          <div className="col-span-2 md:col-span-1 glass-card rounded-xl p-4">
-            <p className="text-[10px] uppercase tracking-wider text-accent font-medium">Woord van de Dag</p>
-            <h3 className="text-2xl md:text-3xl font-bold text-foreground mt-2 italic">{randomWord.original}</h3>
-            {randomWord.phonetic && (
-              <p className="text-sm text-accent italic mt-1">{randomWord.phonetic}</p>
-            )}
-            <p className="text-sm text-muted-foreground mt-2">{randomWord.translation}</p>
-            <div className="flex gap-2 mt-3">
-              {randomWord.category && (
-                <span className="rounded-full bg-primary/20 px-2.5 py-0.5 text-[10px] font-medium text-primary">
-                  {randomWord.category}
-                </span>
-              )}
+        {stats.streakFreezes > 0 && (
+          <>
+            <div className="w-px h-8 bg-border shrink-0" />
+            <div
+              className="flex items-center gap-1 shrink-0"
+              title={`${stats.streakFreezes} streak freeze${stats.streakFreezes === 1 ? '' : 's'}`}
+            >
+              <span className="text-sm">❄️</span>
+              <span className="text-sm font-bold text-foreground">{stats.streakFreezes}</span>
             </div>
-          </div>
+          </>
         )}
       </div>
 
       {/* Overall Mastery */}
       {words.length > 0 && (
-        <div className="glass-card rounded-xl p-5">
+        <div className="bg-card border border-border rounded-xl p-5">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-bold text-foreground">Totale Beheersing</h3>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mt-0.5">
-                Gemiddelde score van {words.length} woorden
-              </p>
+              <h3 className="text-base font-semibold text-foreground">Totale beheersing</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{words.length} woorden</p>
             </div>
-            <p className="text-3xl font-bold text-foreground">{avgMastery}%</p>
+            <p className="text-2xl font-bold text-foreground">{avgMastery}%</p>
           </div>
-          <Progress value={avgMastery} className="mt-3 h-2.5 bg-border" />
-          <div className="flex justify-between mt-2 text-[10px] text-muted-foreground">
+          <Progress value={avgMastery} className="mt-3 h-1.5 bg-border" />
+          <div className="flex justify-between mt-2 text-xs text-muted-foreground">
             <span>{words.filter(w => w.status === 'new').length} nieuw</span>
             <span>{words.filter(w => w.status === 'learning').length} aan het leren</span>
             <span>{words.filter(w => w.status === 'stable').length} stabiel</span>
@@ -243,57 +198,29 @@ export default function Dashboard() {
       )}
 
       {/* Learning Velocity */}
-      <div className="glass-card rounded-xl p-5">
-        <div className="flex items-start justify-between flex-wrap gap-3">
+      <div className="bg-card border border-border rounded-xl p-5">
+        <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
           <div>
-            <h3 className="text-lg font-bold text-foreground">Leersnelheid</h3>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mt-0.5">
-              Afgelopen 7 dagen
-            </p>
+            <h3 className="text-base font-semibold text-foreground">Leersnelheid</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Afgelopen 7 dagen</p>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Totaal</p>
-              <p className="text-lg font-bold text-foreground leading-tight">
+              <p className="text-xs text-muted-foreground">Totaal</p>
+              <p className="text-base font-bold text-foreground leading-tight">
                 {weekTotals.totalWords} <span className="text-xs font-medium text-muted-foreground">woorden</span>
               </p>
             </div>
             <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Gemiddeld</p>
-              <p className="text-lg font-bold text-accent leading-tight">
-                {weekTotals.avgPerActive}
-                <span className="text-xs font-medium text-muted-foreground">/dag</span>
+              <p className="text-xs text-muted-foreground">Gemiddeld</p>
+              <p className="text-base font-bold text-foreground leading-tight">
+                {weekTotals.avgPerActive}<span className="text-xs font-medium text-muted-foreground">/dag</span>
               </p>
             </div>
           </div>
         </div>
 
-        {/* Mini stat row */}
-        <div className="grid grid-cols-3 gap-2 mt-4">
-          <div className="rounded-lg bg-primary/5 border border-primary/10 px-3 py-2">
-            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-              <Target className="h-3 w-3" /> Actieve dagen
-            </div>
-            <p className="text-base font-bold text-foreground mt-0.5">{weekTotals.activeDays}/7</p>
-          </div>
-          <div className="rounded-lg bg-primary/5 border border-primary/10 px-3 py-2">
-            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-              <TrendingUp className="h-3 w-3" /> Beste dag
-            </div>
-            <p className="text-base font-bold text-foreground mt-0.5">{weekTotals.best}</p>
-          </div>
-          <div className="rounded-lg bg-primary/5 border border-primary/10 px-3 py-2">
-            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-              <Clock className="h-3 w-3" /> Studietijd
-            </div>
-            <p className="text-base font-bold text-foreground mt-0.5">
-              {weekTotals.totalMinutes}<span className="text-xs font-medium text-muted-foreground">m</span>
-            </p>
-          </div>
-        </div>
-
-        {/* Chart */}
-        <div className="mt-4 h-56 -mx-2">
+        <div className="h-52 -mx-2">
           {weekTotals.totalWords === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center px-4">
               <TrendingUp className="h-8 w-8 text-muted-foreground/50 mb-2" />
@@ -385,49 +312,54 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Next to Master */}
+      {/* Next to Learn */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-bold text-foreground">Volgende te Leren</h3>
+          <h3 className="text-base font-semibold text-foreground">Volgende te leren</h3>
           <button
             onClick={() => navigate('/toevoegen')}
-            className="text-xs text-accent font-medium flex items-center gap-1"
+            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
           >
-            Bekijk Woordenbank <ChevronRight className="h-3 w-3" />
+            Woordenbank <ChevronRight className="h-3 w-3" />
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          {dueWords.slice(0, 4).map(word => (
-            <div key={word.id} className="glass-card rounded-xl p-4">
-              <span className={`text-[9px] uppercase tracking-wider font-medium ${
-                word.status === 'new' ? 'text-accent' : 
-                word.status === 'learning' ? 'text-warning' :
-                word.status === 'review' ? 'text-primary' : 'text-success'
-              }`}>
-                {word.status === 'new' ? 'Nieuw' : word.status === 'learning' ? 'Aan het leren' : word.status === 'review' ? 'Herhaling' : 'Stabiel'}
-              </span>
-              <h4 className="text-base font-bold text-foreground mt-1">{word.original}</h4>
-              <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{word.translation}</p>
-            </div>
-          ))}
-          {dueWords.length === 0 && words.length === 0 && (
-            <div className="col-span-2 glass-card rounded-xl p-6 text-center">
-              <BookOpen className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">Nog geen woorden toegevoegd.</p>
-              <button
-                onClick={() => navigate('/toevoegen')}
-                className="mt-3 text-sm text-accent font-medium"
+        {dueWords.length > 0 ? (
+          <div className="rounded-xl border border-border overflow-hidden">
+            {dueWords.slice(0, 5).map((word, index) => (
+              <div
+                key={word.id}
+                className={`flex items-center gap-3 bg-card px-4 py-3 ${index < Math.min(dueWords.length, 5) - 1 ? 'border-b border-border' : ''}`}
               >
-                Voeg je eerste woorden toe →
-              </button>
-            </div>
-          )}
-          {dueWords.length === 0 && words.length > 0 && (
-            <div className="col-span-2 glass-card rounded-xl p-6 text-center">
-              <p className="text-sm text-muted-foreground">🎉 Alles bijgewerkt! Kom later terug.</p>
-            </div>
-          )}
-        </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground truncate">{word.original}</p>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">{word.translation}</p>
+                </div>
+                <span className={`text-[10px] font-medium shrink-0 ${
+                  word.status === 'new' ? 'text-primary' :
+                  word.status === 'learning' ? 'text-warning' :
+                  word.status === 'review' ? 'text-primary' : 'text-success'
+                }`}>
+                  {word.status === 'new' ? 'Nieuw' : word.status === 'learning' ? 'Leren' : word.status === 'review' ? 'Herhaling' : 'Stabiel'}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : words.length === 0 ? (
+          <div className="bg-card border border-border rounded-xl p-6 text-center">
+            <BookOpen className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+            <p className="text-sm text-muted-foreground">Nog geen woorden toegevoegd.</p>
+            <button
+              onClick={() => navigate('/toevoegen')}
+              className="mt-3 text-sm text-primary font-medium"
+            >
+              Voeg je eerste woorden toe
+            </button>
+          </div>
+        ) : (
+          <div className="bg-card border border-border rounded-xl p-6 text-center">
+            <p className="text-sm text-muted-foreground">Alles bijgewerkt. Kom later terug.</p>
+          </div>
+        )}
       </div>
     </div>
   );

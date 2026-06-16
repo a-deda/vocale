@@ -18,9 +18,8 @@ export default function DesktopSidebar() {
 
   return (
     <aside className="hidden md:flex md:w-56 lg:w-64 flex-col fixed left-0 top-0 bottom-0 border-r border-border bg-sidebar z-50">
-      <div className="flex items-center gap-2 px-6 py-6">
-        <span className="text-xl font-black italic text-gradient-primary">LEXIS</span>
-        <span className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">Vocal Mastery</span>
+      <div className="flex items-center px-6 py-6">
+        <span className="text-lg font-semibold text-foreground tracking-tight">Lexis</span>
       </div>
 
       <nav className="flex-1 px-3 space-y-1">
@@ -32,7 +31,7 @@ export default function DesktopSidebar() {
               to={to}
               className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
                 active
-                  ? 'bg-primary/10 text-primary border-l-2 border-primary'
+                  ? 'bg-primary/10 text-primary'
                   : 'text-sidebar-foreground hover:bg-sidebar-accent'
               }`}
             >
@@ -53,8 +52,8 @@ export default function DesktopSidebar() {
         </NavLink>
 
         <div className="flex items-center gap-2 px-2">
-          <div className="h-8 w-8 rounded-full gradient-accent flex items-center justify-center">
-            <span className="text-xs font-bold text-accent-foreground">A</span>
+          <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center">
+            <span className="text-xs font-semibold text-foreground">A</span>
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-foreground truncate">Alex</p>

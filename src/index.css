@@ -109,18 +109,6 @@
   .glass-card {
     @apply bg-card/80 backdrop-blur-xl border border-border/50;
   }
-  .text-gradient-primary {
-    background: var(--gradient-primary);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-  .text-gradient-accent {
-    background: var(--gradient-accent);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
   .flame-active {
     color: hsl(var(--streak));
     fill: hsl(var(--streak));
