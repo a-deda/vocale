@@ -166,6 +166,48 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     expect(screen.getByPlaceholderText(IT_INPUT)).toBeInTheDocument();
   });
 
+  it('meerkeuze: een fout antwoord pauzeert met correctie-opties (springt niet door)', () => {
+    H.state.queue = [{ cardId: 'w1', mode: 'mc', dueDate: null }];
+    renderStudy();
+
+    // Kies een fout (altijd aanwezige) optie
+    fireEvent.click(screen.getByText('onbekend'));
+
+    expect(screen.getByText('Toch goed rekenen')).toBeInTheDocument();
+    expect(screen.getByText('Woord aanpassen')).toBeInTheDocument();
+    expect(screen.getByText('Verder')).toBeInTheDocument();
+    expect(screen.queryByText('Sessie Voltooid!')).not.toBeInTheDocument();
+  });
+
+  it('meerkeuze: "Toch goed rekenen" telt het woord goed en gaat verder', () => {
+    H.state.queue = [{ cardId: 'w1', mode: 'mc', dueDate: null }];
+    renderStudy();
+
+    fireEvent.click(screen.getByText('onbekend'));
+    fireEvent.click(screen.getByText('Toch goed rekenen'));
+
+    // Doorgegaan: het woord komt als typ-oefening terug (geen MC-correctie meer)
+    expect(screen.getByPlaceholderText(IT_INPUT)).toBeInTheDocument();
+    expect(screen.queryByText('Toch goed rekenen')).not.toBeInTheDocument();
+  });
+
+  it('meerkeuze: het woord aanpassen wordt opgeslagen (geen "mijn antwoord"-snelkoppeling)', () => {
+    H.state.queue = [{ cardId: 'w1', mode: 'mc', dueDate: null }];
+    renderStudy();
+
+    fireEvent.click(screen.getByText('onbekend'));
+    fireEvent.click(screen.getByText('Woord aanpassen'));
+
+    // Bij meerkeuze is er geen "mijn antwoord overnemen"-knop
+    expect(screen.queryByText(/Mijn antwoord/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByDisplayValue('praten'), { target: { value: 'praten; babbelen' } });
+    fireEvent.click(screen.getByText('Opslaan'));
+
+    expect(H.state.updateWord).toHaveBeenCalledWith('w1', { original: 'parlare', translation: 'praten; babbelen' });
+    expect(screen.getByText('Woord aangepast')).toBeInTheDocument();
+  });
+
   it('een correct antwoord gaat na de feedback nog steeds automatisch door (geen regressie)', () => {
     vi.useFakeTimers();
     try {

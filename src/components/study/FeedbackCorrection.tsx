@@ -3,13 +3,13 @@ import { Word } from '@/types/word';
 import { Pencil, ArrowRight, Check } from 'lucide-react';
 import { mergeTranslation } from '@/lib/translation-utils';
 
-type TypedMode = 'typed_nl_it' | 'typed_it_nl' | 'listen_type';
+type CorrectableMode = 'mc' | 'typed_nl_it' | 'typed_it_nl' | 'listen_type';
 
 interface FeedbackCorrectionProps {
   word:   Word;
-  /** Wat de gebruiker typte ('' bij overslaan). */
+  /** Wat de gebruiker typte/koos ('' bij overslaan). */
   input:  string;
-  mode:   TypedMode;
+  mode:   CorrectableMode;
   /** Huidige (eventueel herziene) beoordeling van het antwoord. */
   result: 'correct' | 'almost' | 'wrong';
   /** Vastgelegd resultaat ná een correctie, voor het bijwerken-label. */
@@ -34,6 +34,9 @@ export default function FeedbackCorrection({
 
   // De getypte kant: bij IT→NL typte je het Nederlands, anders het Italiaans.
   const typedDutch = mode === 'typed_it_nl';
+  // Bij meerkeuze koos je een bestaande optie; "mijn antwoord overnemen" heeft
+  // dan geen zin (het is de vertaling van een ánder woord).
+  const showUseMyAnswer = mode !== 'mc' && input.trim().length > 0;
   const canMarkCorrect = result !== 'correct' && input.trim().length > 0;
 
   useEffect(() => {
@@ -71,9 +74,11 @@ export default function FeedbackCorrection({
       {corrected && (
         <div className="flex items-center gap-2 text-sm text-success">
           <Check className="h-4 w-4 shrink-0" />
-          <span>Aangepast — beoordeling bijgewerkt naar <strong>{
-            result === 'correct' ? 'Goed' : result === 'almost' ? 'Bijna' : 'Fout'
-          }</strong></span>
+          <span>
+            {result === 'correct'
+              ? <>Aangepast — beoordeling bijgewerkt naar <strong>Goed</strong></>
+              : 'Woord aangepast'}
+          </span>
         </div>
       )}
 
@@ -99,7 +104,7 @@ export default function FeedbackCorrection({
               className="mt-1 w-full rounded-lg bg-background border border-border px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
           </div>
-          {input.trim() && (
+          {showUseMyAnswer && (
             <button
               type="button"
               onClick={useMyAnswer}

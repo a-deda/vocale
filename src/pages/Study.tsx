@@ -18,8 +18,8 @@ import FlashcardCard from '@/components/study/FlashcardCard';
 import ListeningCard from '@/components/study/ListeningCard';
 import FeedbackCorrection from '@/components/study/FeedbackCorrection';
 
-/** Modi die een getypt antwoord met feedbackscherm hebben. */
-const TYPED_FEEDBACK_MODES: FsrsMode[] = ['typed_nl_it', 'typed_it_nl', 'listen_type'];
+/** Modi waar een fout antwoord pauzeert zodat je kunt corrigeren. */
+const CORRECTABLE_MODES: FsrsMode[] = ['mc', 'typed_nl_it', 'typed_it_nl', 'listen_type'];
 
 type AnswerState = null | { result: 'correct' | 'almost' | 'wrong'; input: string };
 
@@ -85,6 +85,7 @@ export default function Study() {
     usedMode: FsrsMode;
     responseMs: number;
     input: string;
+    kind: 'mc' | 'typed';
   } | null>(null);
   const answerStateRef = useRef<AnswerState>(null);
   useEffect(() => { answerStateRef.current = answerState; }, [answerState]);
@@ -275,33 +276,44 @@ export default function Study() {
 
   // ─── Antwoord-handlers ──────────────────────────────────────────────────
 
+  /** Schrijf een meerkeuze-beoordeling weg en ga door. */
+  const commitMC = useCallback((item: QueueItem & { word: Word }, isCorrect: boolean) => {
+    const grade = determineGrade('mc', isCorrect ? 'correct' : 'wrong');
+
+    if (isCorrect) {
+      // Na een correcte kennismaking ditzelfde woord nog laten typen deze sessie.
+      const typedItem: QueueItem & { word: Word } = {
+        cardId:  item.cardId,
+        mode:    'typed_nl_it',
+        dueDate: null,
+        word:    item.word,
+      };
+      const entry = { item: typedItem, addedAtIndex: currentIndexRef.current };
+      pendingPoolRef.current = [...pendingPoolRef.current, entry];
+      setPendingPool(prev => [...prev, entry]);
+    }
+
+    void persistReview(item, grade, item.mode);
+    recordResult(item.cardId, isCorrect);
+    moveToNext();
+  }, [persistReview, recordResult, moveToNext]);
+
   const handleMCAnswer = useCallback((selected: string) => {
     if (!currentItem || selectedMC !== null) return;
     setSelectedMC(selected);
 
-    setTimeout(() => {
-      const correct   = activeMeaningRef.current.replace(/\s*\([^)]+\)/g, '').trim();
-      const isCorrect = selected === correct;
-      const matchResult = isCorrect ? 'correct' : 'wrong';
-      const grade       = determineGrade('mc', matchResult);
+    const correct   = activeMeaningRef.current.replace(/\s*\([^)]+\)/g, '').trim();
+    const isCorrect = selected === correct;
 
-      if (isCorrect) {
-        const typedItem: QueueItem & { word: Word } = {
-          cardId:  currentItem.cardId,
-          mode:    'typed_nl_it',
-          dueDate: null,
-          word:    currentItem.word,
-        };
-        const entry = { item: typedItem, addedAtIndex: currentIndexRef.current };
-        pendingPoolRef.current = [...pendingPoolRef.current, entry];
-        setPendingPool(prev => [...prev, entry]);
-      }
-
-      void persistReview(currentItem, grade, currentItem.mode);
-      recordResult(currentItem.cardId, isCorrect);
-      moveToNext();
-    }, 1200);
-  }, [currentItem, selectedMC, persistReview, recordResult, moveToNext]);
+    if (isCorrect) {
+      setTimeout(() => commitMC(currentItem, true), 1200);
+    } else {
+      // Pauzeer zodat het juiste antwoord zichtbaar blijft en je kunt corrigeren.
+      setAnswerState({ result: 'wrong', input: selected });
+      pendingCommitRef.current = { item: currentItem, usedMode: currentItem.mode, responseMs: 0, input: selected, kind: 'mc' };
+      setPaused(true);
+    }
+  }, [currentItem, selectedMC, commitMC]);
 
   /** Beoordeel een getypt antwoord tegen het (eventueel aangepaste) woord. */
   const evaluateTyped = useCallback((
@@ -313,8 +325,8 @@ export default function Study() {
       // NL → IT: accepteer ook synoniemen
       return fuzzyMatchWithAlternatives(input, word.original, findSynonymOriginals(word, words));
     }
-    if (usedMode === 'typed_it_nl') {
-      // IT → NL
+    if (usedMode === 'typed_it_nl' || usedMode === 'mc') {
+      // IT → NL en meerkeuze: vergelijk de gekozen/getypte betekenis met de vertaling
       return fuzzyMatch(input, word.translation);
     }
     // listen_type / fill_blank: exacte IT-spelling
@@ -373,7 +385,7 @@ export default function Study() {
       setTimeout(() => commitTyped(currentItem, usedMode, matchResult, responseMs), 1500);
     } else {
       // Pauzeer: geef de kans om een fout opgeslagen woord te corrigeren.
-      pendingCommitRef.current = { item: currentItem, usedMode, responseMs, input: typedAnswer };
+      pendingCommitRef.current = { item: currentItem, usedMode, responseMs, input: typedAnswer, kind: 'typed' };
       setPaused(true);
     }
   }, [currentItem, typedAnswer, effectiveMode, evaluateTyped, commitTyped]);
@@ -382,7 +394,7 @@ export default function Study() {
     if (!currentItem) return;
     const usedMode = effectiveMode(currentItem);
     setAnswerState({ result: 'wrong', input: '' });
-    pendingCommitRef.current = { item: currentItem, usedMode, responseMs: 0, input: '' };
+    pendingCommitRef.current = { item: currentItem, usedMode, responseMs: 0, input: '', kind: 'typed' };
     setPaused(true);
   }, [currentItem, effectiveMode]);
 
@@ -391,15 +403,17 @@ export default function Study() {
     const pc = pendingCommitRef.current;
     if (!pc) return;
     const result = answerStateRef.current?.result ?? 'wrong';
-    commitTyped(pc.item, pc.usedMode, result, pc.responseMs);
-  }, [commitTyped]);
+    if (pc.kind === 'mc') commitMC(pc.item, result === 'correct');
+    else commitTyped(pc.item, pc.usedMode, result, pc.responseMs);
+  }, [commitMC, commitTyped]);
 
   /** 'Toch goed rekenen': overschrijf de beoordeling naar correct en ga door. */
   const handleMarkCorrect = useCallback(() => {
     const pc = pendingCommitRef.current;
     if (!pc) return;
-    commitTyped(pc.item, pc.usedMode, 'correct', pc.responseMs);
-  }, [commitTyped]);
+    if (pc.kind === 'mc') commitMC(pc.item, true);
+    else commitTyped(pc.item, pc.usedMode, 'correct', pc.responseMs);
+  }, [commitMC, commitTyped]);
 
   /** Sla een correctie op en herbeoordeel het lopende antwoord meteen. */
   const handleSaveCorrection = useCallback((original: string, translation: string) => {
@@ -558,12 +572,12 @@ export default function Study() {
         />
       ) : null}
 
-      {/* Correctie op het feedbackmoment (getypte / luister-kaarten) */}
-      {paused && currentItem && answerState && TYPED_FEEDBACK_MODES.includes(mode) && (
+      {/* Correctie op het feedbackmoment (meerkeuze / getypte / luister-kaarten) */}
+      {paused && currentItem && answerState && CORRECTABLE_MODES.includes(mode) && (
         <FeedbackCorrection
           word={currentItem.word}
           input={answerState.input}
-          mode={mode as 'typed_nl_it' | 'typed_it_nl' | 'listen_type'}
+          mode={mode as 'mc' | 'typed_nl_it' | 'typed_it_nl' | 'listen_type'}
           result={answerState.result}
           corrected={corrected}
           onSave={handleSaveCorrection}
