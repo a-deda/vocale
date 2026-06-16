@@ -37,7 +37,10 @@ export default function FeedbackCorrection({
   const canMarkCorrect = result !== 'correct' && input.trim().length > 0;
 
   useEffect(() => {
-    if (!expanded) continueRef.current?.focus();
+    if (!expanded) {
+      const timer = setTimeout(() => continueRef.current?.focus(), 300);
+      return () => clearTimeout(timer);
+    }
   }, [expanded]);
 
   const handleSave = () => {
