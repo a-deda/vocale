@@ -192,13 +192,25 @@ export default function WordBank() {
   const PAGE_SIZE = 30;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  const filteredWords = useMemo(() =>
-    words.filter(w =>
-      w.original.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      w.translation.toLowerCase().includes(searchQuery.toLowerCase())
-    ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [words, searchQuery]
-  );
+  const filteredWords = useMemo(() => {
+    const getLastReviewed = (wordId: string): number => {
+      const states = fsrsStates[wordId] ?? {};
+      const times = Object.values(states).map(s => s?.lastReviewedAt ? new Date(s.lastReviewedAt).getTime() : 0);
+      return times.length > 0 ? Math.max(...times) : 0;
+    };
+
+    return words
+      .filter(w =>
+        w.original.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        w.translation.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+      .sort((a, b) => {
+        const aTime = getLastReviewed(a.id);
+        const bTime = getLastReviewed(b.id);
+        if (aTime !== bTime) return bTime - aTime;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+  }, [words, fsrsStates, searchQuery]);
 
   const visibleWords = filteredWords.slice(0, visibleCount);
   const hasMore = visibleCount < filteredWords.length;
