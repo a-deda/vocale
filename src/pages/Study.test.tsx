@@ -33,7 +33,9 @@ const H = vi.hoisted(() => {
     upsertFsrsState: vi.fn(() => Promise.resolve()),
     addReviewLog: vi.fn(() => Promise.resolve()),
     updateStreak: vi.fn(() => Promise.resolve()),
-    addSession: vi.fn(() => Promise.resolve()),
+    addSession: vi.fn((_session: {
+      date: string; wordsStudied: number; correct: number; incorrect: number; duration: number;
+    }) => Promise.resolve()),
   };
   return { makeWord, state };
 });
@@ -110,7 +112,7 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     expect(screen.getByText('Sessie Voltooid!')).toBeInTheDocument();
     expect(H.state.updateWord).not.toHaveBeenCalledWith('w1', expect.objectContaining({ original: expect.anything() }));
     expect(H.state.addSession).toHaveBeenCalledTimes(1);
-    const session = H.state.addSession.mock.calls[0][0] as { correct: number; incorrect: number };
+    const session = H.state.addSession.mock.calls[0][0];
     expect(session.correct).toBe(1);
     expect(session.incorrect).toBe(0);
   });
@@ -226,5 +228,65 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('Study – elke les wordt opgeslagen', () => {
+  it('slaat een halverwege afgebroken les alsnog op bij het verlaten van de pagina', () => {
+    // Twee kaarten: na één antwoord is de sessie nog niet afgerond.
+    H.state.words = [H.makeWord(), H.makeWord({ id: 'w2', original: 'mangiare', translation: 'eten' })];
+    H.state.queue = [
+      { cardId: 'w1', mode: 'typed_nl_it', dueDate: null },
+      { cardId: 'w2', mode: 'typed_nl_it', dueDate: null },
+    ];
+
+    // Houd de shuffle van de wachtrij deterministisch: w1 blijft vooraan.
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.9);
+    vi.useFakeTimers();
+    try {
+      const { unmount } = renderStudy();
+
+      fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
+      fireEvent.click(screen.getByText('Controleer'));
+      act(() => { vi.advanceTimersByTime(1600); });
+
+      // Nog midden in de les: nog niets weggeschreven.
+      expect(H.state.addSession).not.toHaveBeenCalled();
+
+      unmount();
+
+      expect(H.state.addSession).toHaveBeenCalledTimes(1);
+      const session = H.state.addSession.mock.calls[0][0];
+      expect(session.wordsStudied).toBe(1);
+      expect(session.correct).toBe(1);
+    } finally {
+      vi.useRealTimers();
+      random.mockRestore();
+    }
+  });
+
+  it('slaat een afgeronde les precies één keer op, ook na het verlaten van de pagina', () => {
+    vi.useFakeTimers();
+    try {
+      const { unmount } = renderStudy();
+
+      fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
+      fireEvent.click(screen.getByText('Controleer'));
+      act(() => { vi.advanceTimersByTime(1600); });
+
+      expect(screen.getByText('Sessie Voltooid!')).toBeInTheDocument();
+      expect(H.state.addSession).toHaveBeenCalledTimes(1);
+
+      unmount();
+      expect(H.state.addSession).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('slaat niets op als er geen enkel woord is beantwoord', () => {
+    const { unmount } = renderStudy();
+    unmount();
+    expect(H.state.addSession).not.toHaveBeenCalled();
   });
 });
