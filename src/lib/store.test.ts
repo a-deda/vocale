@@ -1,0 +1,257 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { renderHook, act, waitFor } from '@testing-library/react';
+
+/**
+ * Tests voor het wegschrijven van voortgang.
+ *
+ * Achtergrond: de streak werd niet altijd verlengd en sommige lessen kwamen
+ * niet in de database terecht. Oorzaken waren (1) een kale UPDATE op user_stats
+ * die nul rijen raakte zonder fout te geven wanneer de rij ontbrak, (2) streak-
+ * berekening op een verouderde kopie van de stats, en (3) een sessie-insert die
+ * bij een netwerkfout gewoon verloren ging.
+ */
+
+type Row = Record<string, unknown>;
+type Result = { data: Row | Row[] | null; error: { message: string; code?: string } | null };
+type Call = { table: string; op: string; payload: Row; filters: Row; single: boolean };
+type Handler = (call: Call) => Result;
+
+interface Builder extends PromiseLike<Result> {
+  select(): Builder;
+  insert(payload: Row): Builder;
+  update(payload: Row): Builder;
+  upsert(payload: Row): Builder;
+  delete(): Builder;
+  eq(column: string, value: unknown): Builder;
+  order(): Builder;
+  single(): Builder;
+  maybeSingle(): Builder;
+}
+
+const H = vi.hoisted(() => {
+  const calls: Call[] = [];
+  let handler: Handler = () => ({ data: null, error: null });
+
+  function builder(table: string): Builder {
+    const call: Call = { table, op: 'select', payload: {}, filters: {}, single: false };
+    const b: Builder = {
+      select:      () => b,
+      insert:      (p) => { call.op = 'insert'; call.payload = p; return b; },
+      update:      (p) => { call.op = 'update'; call.payload = p; return b; },
+      upsert:      (p) => { call.op = 'upsert'; call.payload = p; return b; },
+      delete:      () => { call.op = 'delete'; return b; },
+      eq:          (k, v) => { call.filters[k] = v; return b; },
+      order:       () => b,
+      single:      () => { call.single = true; return b; },
+      maybeSingle: () => { call.single = true; return b; },
+      then: (resolve, reject) => {
+        calls.push(call);
+        return Promise.resolve(handler(call)).then(resolve, reject);
+      },
+    };
+    return b;
+  }
+
+  const supabase = {
+    auth: {
+      getUser: () => Promise.resolve({ data: { user: { id: 'user-1' } } }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+    },
+    from: (table: string) => builder(table),
+  };
+
+  return {
+    calls,
+    supabase,
+    setHandler: (h: Handler) => { handler = h; },
+  };
+});
+
+vi.mock('@/integrations/supabase/client', () => ({ supabase: H.supabase }));
+vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));
+
+import { useWordStore, localDateKey } from '@/lib/store';
+
+/** Standaardantwoorden; per test aan te passen via `rows`/`fail`. */
+const rows: { userStats: Row | null } = { userStats: null };
+const fail = { studySessions: false };
+
+function defaultHandler(call: Call): Result {
+  if (call.table === 'user_stats') {
+    if (call.op === 'select') return { data: rows.userStats, error: null };
+    return { data: [{ ...call.payload }], error: null };
+  }
+  if (call.table === 'study_sessions') {
+    if (call.op === 'select') return { data: [], error: null };
+    // PGRST-code = permanente fout, dus geen retry-vertraging in de test.
+    if (fail.studySessions) return { data: null, error: { message: 'offline', code: 'PGRST301' } };
+    return { data: { id: 's1', ...call.payload }, error: null };
+  }
+  return { data: [], error: null };
+}
+
+function statsWrites() {
+  return H.calls.filter(c => c.table === 'user_stats' && c.op !== 'select');
+}
+
+async function renderStore() {
+  const hook = renderHook(() => useWordStore());
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  return hook;
+}
+
+beforeEach(() => {
+  H.calls.length = 0;
+  rows.userStats = null;
+  fail.studySessions = false;
+  H.setHandler(defaultHandler);
+  localStorage.clear();
+});
+
+describe('user_stats zonder bestaande rij', () => {
+  it('maakt de rij aan bij het laden in plaats van naar nul rijen te schrijven', async () => {
+    await renderStore();
+
+    const writes = statsWrites();
+    expect(writes.length).toBeGreaterThan(0);
+    // Geen kale UPDATE meer: die raakte nul rijen én gaf geen fout terug.
+    expect(writes.every(w => w.op === 'upsert')).toBe(true);
+    expect(writes[0].payload.user_id).toBe('user-1');
+  });
+
+  it('bewaart een nieuwe streak ook als de rij nog niet bestond', async () => {
+    const { result } = await renderStore();
+    H.calls.length = 0;
+
+    await act(async () => { await result.current.updateStreak(); });
+
+    const write = statsWrites().at(-1)!;
+    expect(write.op).toBe('upsert');
+    expect(write.payload.current_streak).toBe(1);
+    expect(write.payload.last_study_date).toBe(localDateKey(0));
+    expect(result.current.stats.currentStreak).toBe(1);
+  });
+});
+
+describe('streak verlengen', () => {
+  it('telt door op de streak van gisteren', async () => {
+    rows.userStats = {
+      current_streak: 4, longest_streak: 9, last_study_date: localDateKey(1),
+      total_words_learned: 100, total_sessions: 12, daily_goal: 20,
+      streak_freezes: 0, freezes_earned_at_streak: 0,
+    };
+    const { result } = await renderStore();
+
+    await act(async () => { await result.current.updateStreak(); });
+
+    expect(result.current.stats.currentStreak).toBe(5);
+    expect(statsWrites().at(-1)!.payload.current_streak).toBe(5);
+  });
+
+  it('verhoogt de streak niet nogmaals bij meerdere reviews op dezelfde dag', async () => {
+    rows.userStats = {
+      current_streak: 4, longest_streak: 9, last_study_date: localDateKey(1),
+      total_words_learned: 100, total_sessions: 12, daily_goal: 20,
+      streak_freezes: 0, freezes_earned_at_streak: 0,
+    };
+    const { result } = await renderStore();
+
+    // Elke kaart in een sessie roept updateStreak aan; die aanroepen lopen door
+    // elkaar heen. Ze moeten samen precies één verhoging opleveren.
+    await act(async () => {
+      await Promise.all([
+        result.current.updateStreak(),
+        result.current.updateStreak(),
+        result.current.updateStreak(),
+      ]);
+    });
+
+    expect(result.current.stats.currentStreak).toBe(5);
+    expect(statsWrites().filter(w => w.payload.last_study_date === localDateKey(0))).toHaveLength(1);
+  });
+
+  it('valt terug op 1 na een onderbroken streak', async () => {
+    rows.userStats = {
+      current_streak: 7, longest_streak: 9, last_study_date: localDateKey(5),
+      total_words_learned: 100, total_sessions: 12, daily_goal: 20,
+      streak_freezes: 0, freezes_earned_at_streak: 0,
+    };
+    const { result } = await renderStore();
+
+    await act(async () => { await result.current.updateStreak(); });
+
+    expect(result.current.stats.currentStreak).toBe(1);
+    expect(result.current.stats.longestStreak).toBe(9);
+  });
+});
+
+describe('sessies opslaan', () => {
+  const lesson = { date: new Date().toISOString(), wordsStudied: 8, correct: 6, incorrect: 2, duration: 240 };
+
+  it('verlengt de streak zodra een les is afgerond', async () => {
+    rows.userStats = {
+      current_streak: 2, longest_streak: 2, last_study_date: localDateKey(1),
+      total_words_learned: 10, total_sessions: 1, daily_goal: 20,
+      streak_freezes: 0, freezes_earned_at_streak: 0,
+    };
+    const { result } = await renderStore();
+
+    await act(async () => { await result.current.addSession(lesson); });
+
+    expect(result.current.stats.currentStreak).toBe(3);
+    expect(result.current.stats.lastStudyDate).toBe(localDateKey(0));
+    expect(result.current.stats.totalSessions).toBe(2);
+    expect(result.current.stats.totalWordsLearned).toBe(16);
+  });
+
+  it('houdt een mislukte les vast en verstuurt hem later alsnog', async () => {
+    fail.studySessions = true;
+    const { result } = await renderStore();
+
+    await act(async () => { await result.current.addSession(lesson); });
+
+    // Niet verloren: de les staat in de outbox voor een volgende poging.
+    const stored = JSON.parse(localStorage.getItem('vocale.pendingSessions.user-1') || '[]');
+    expect(stored).toHaveLength(1);
+    expect(stored[0].wordsStudied).toBe(8);
+    expect(result.current.sessions).toHaveLength(0);
+
+    fail.studySessions = false;
+    await act(async () => { await result.current.flushPendingSessions(); });
+
+    expect(localStorage.getItem('vocale.pendingSessions.user-1')).toBeNull();
+    expect(result.current.sessions).toHaveLength(1);
+  });
+
+  it('stuurt bij het opnieuw versturen dezelfde client_id mee, zodat er geen dubbele rij ontstaat', async () => {
+    fail.studySessions = true;
+    const { result } = await renderStore();
+    await act(async () => { await result.current.addSession(lesson); });
+
+    fail.studySessions = false;
+    H.calls.length = 0;
+    await act(async () => { await result.current.flushPendingSessions(); });
+
+    const write = H.calls.find(c => c.table === 'study_sessions' && c.op !== 'select')!;
+    expect(write.op).toBe('upsert');
+    expect(typeof write.payload.client_id).toBe('string');
+  });
+
+  it('valt terug op een gewone insert als de database client_id nog niet kent', async () => {
+    H.setHandler((call) => {
+      if (call.table === 'study_sessions' && call.op === 'upsert') {
+        return { data: null, error: { message: "Could not find the 'client_id' column", code: 'PGRST204' } };
+      }
+      return defaultHandler(call);
+    });
+    const { result } = await renderStore();
+
+    await act(async () => { await result.current.addSession(lesson); });
+
+    const sessionWrites = H.calls.filter(c => c.table === 'study_sessions' && c.op !== 'select');
+    expect(sessionWrites.map(w => w.op)).toEqual(['upsert', 'insert']);
+    expect(sessionWrites[1].payload).not.toHaveProperty('client_id');
+    expect(localStorage.getItem('vocale.pendingSessions.user-1')).toBeNull();
+    expect(result.current.sessions).toHaveLength(1);
+  });
+});

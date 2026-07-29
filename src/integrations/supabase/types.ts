@@ -46,6 +46,7 @@ export type Database = {
       }
       study_sessions: {
         Row: {
+          client_id: string | null
           correct: number
           created_at: string
           date: string
@@ -56,6 +57,7 @@ export type Database = {
           words_studied: number
         }
         Insert: {
+          client_id?: string | null
           correct?: number
           created_at?: string
           date?: string
@@ -66,6 +68,7 @@ export type Database = {
           words_studied?: number
         }
         Update: {
+          client_id?: string | null
           correct?: number
           created_at?: string
           date?: string

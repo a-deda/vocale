@@ -107,6 +107,9 @@ export default function Study() {
   // sessietellers af, zodat 'woorden', 'goed' en 'fout' altijd op elkaar kloppen
   // (één woord telt één keer, ongeacht intro + getypte follow-up + herkansingen).
   const wordResultsRef      = useRef(new Map<string, boolean>());
+  // Zorgt dat een les precies één keer wordt weggeschreven: aan het eind van de
+  // wachtrij, of — als de gebruiker eerder stopt — bij het verlaten van de pagina.
+  const sessionSavedRef     = useRef(false);
   const [finalStats, setFinalStats] = useState({ words: 0, correct: 0 });
 
   useEffect(() => { currentIndexRef.current = currentIndex;  }, [currentIndex]);
@@ -224,6 +227,45 @@ export default function Study() {
     wordResultsRef.current.set(cardId, correct);
   }, []);
 
+  /**
+   * Schrijf de les weg. Tellers komen uit het per-woord eindresultaat (synchrone
+   * ref → geen off-by-one): 'woorden' = unieke woorden, goed + fout = woorden.
+   * Wordt hooguit één keer uitgevoerd, ook als de gebruiker halverwege stopt.
+   */
+  const saveSession = useCallback(() => {
+    if (sessionSavedRef.current) return null;
+
+    const results       = wordResultsRef.current;
+    const distinctWords = results.size;
+    if (distinctWords === 0) return null; // nog niets beantwoord: niets te bewaren
+
+    sessionSavedRef.current = true;
+    const correct   = [...results.values()].filter(Boolean).length;
+    const incorrect = distinctWords - correct;
+
+    void addSession({
+      date:         new Date().toISOString(),
+      wordsStudied: distinctWords,
+      correct,
+      incorrect,
+      duration:     Math.round((Date.now() - sessionStartRef.current) / 1000),
+    });
+
+    return { words: distinctWords, correct };
+  }, [addSession]);
+
+  // Stopt de gebruiker halverwege (terug navigeren, tab sluiten), dan telt die
+  // les nog steeds mee. Voorheen werd alleen een volledig uitgespeelde wachtrij
+  // opgeslagen en verdween een afgebroken les uit de statistieken en de streak.
+  useEffect(() => {
+    const flush = () => { saveSession(); };
+    window.addEventListener('pagehide', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, [saveSession]);
+
   const moveToNext = useCallback(() => {
     setAnswerState(null);
     setTypedAnswer('');
@@ -257,22 +299,10 @@ export default function Study() {
       return;
     }
 
-    // Tellers afleiden uit het per-woord eindresultaat (synchrone ref → geen
-    // off-by-one). 'Woorden' = unieke woorden; goed + fout = woorden.
-    const results       = wordResultsRef.current;
-    const distinctWords = results.size;
-    const correct       = [...results.values()].filter(Boolean).length;
-    const incorrect     = distinctWords - correct;
-    setFinalStats({ words: distinctWords, correct });
-    void addSession({
-      date:         new Date().toISOString(),
-      wordsStudied: distinctWords,
-      correct,
-      incorrect,
-      duration:     Math.round((Date.now() - sessionStartRef.current) / 1000),
-    });
+    const totals = saveSession();
+    if (totals) setFinalStats(totals);
     setCurrentIndex(q.length);
-  }, [addSession]);
+  }, [saveSession]);
 
   // ─── Antwoord-handlers ──────────────────────────────────────────────────
 

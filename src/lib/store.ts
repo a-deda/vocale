@@ -1,9 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Word, UserStats, StudySession } from '@/types/word';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import type { FsrsMode, FsrsState, FsrsReviewLog } from '@/lib/fsrs';
 import { FSRS_MODES, emptyFsrsState } from '@/lib/fsrs';
+import {
+  PendingSession, makeClientId, readPendingSessions,
+  queuePendingSession, unqueuePendingSession,
+} from '@/lib/session-outbox';
 
 export type FsrsStatesMap = Record<string, Partial<Record<FsrsMode, FsrsState>>>;
 
@@ -20,6 +24,61 @@ const DEFAULT_STATS: UserStats = {
 
 const MAX_FREEZES    = 3;
 const FREEZE_INTERVAL = 10;
+
+/** Wachttijden tussen pogingen bij een tijdelijke (netwerk)fout. */
+const RETRY_DELAYS = [400, 1200, 3000];
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** Datumsleutel in de lokale tijdzone (yyyy-mm-dd), niet in UTC. */
+export function localDateKey(offsetDays = 0): string {
+  const d = new Date(Date.now() - offsetDays * 86400000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Alleen netwerk-/serverstoringen zijn het opnieuw proberen waard. Fouten van
+ * PostgREST of Postgres zelf (schema, rechten, constraints) blijven falen.
+ */
+function isTransientError(error: { code?: string } | null): boolean {
+  if (!error) return false;
+  const code = error.code ?? '';
+  if (!code) return true; // fetch-fout zonder code → waarschijnlijk offline
+  return !(code.startsWith('PGRST') || /^[0-9]{2}[0-9A-Z]{3}$/.test(code));
+}
+
+type QueryError  = { message: string; code?: string; details?: string };
+type QueryResult<T> = { data: T | null; error: QueryError | null };
+
+/**
+ * Voer een Supabase-query uit en probeer het bij een tijdelijke storing opnieuw.
+ * Zonder deze herkansing ging een review of sessie bij één netwerkhikje verloren.
+ */
+async function withRetry<T = Record<string, unknown>>(op: () => PromiseLike<unknown>): Promise<QueryResult<T>> {
+  let result: QueryResult<T> = { data: null, error: null };
+  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+    try {
+      result = await (op() as PromiseLike<QueryResult<T>>);
+    } catch (e) {
+      result = { data: null, error: { message: e instanceof Error ? e.message : 'Netwerkfout' } };
+    }
+    if (!result.error) return result;
+    if (!isTransientError(result.error) || attempt === RETRY_DELAYS.length) break;
+    await sleep(RETRY_DELAYS[attempt]);
+  }
+  return result;
+}
+
+/**
+ * Oudere databases kennen de kolom `client_id` op study_sessions nog niet.
+ * Dan vallen we terug op een gewone insert (zonder idempotentie).
+ */
+function needsClientIdFallback(error: QueryError | null): boolean {
+  if (!error) return false;
+  const code = error.code ?? '';
+  if (code === 'PGRST204' || code === '42703' || code === '42P10') return true;
+  return `${error.message ?? ''} ${error.details ?? ''}`.toLowerCase().includes('client_id');
+}
 
 // Map DB row to Word type
 function dbToWord(row: any): Word {
@@ -57,6 +116,21 @@ function dbToStats(row: any): UserStats {
   };
 }
 
+/** Volledige user_stats-rij, zodat een upsert ook een ontbrekende rij aanmaakt. */
+function statsToRow(userId: string, stats: UserStats) {
+  return {
+    user_id:                  userId,
+    current_streak:           stats.currentStreak,
+    longest_streak:           stats.longestStreak,
+    last_study_date:          stats.lastStudyDate,
+    total_words_learned:      stats.totalWordsLearned,
+    total_sessions:           stats.totalSessions,
+    daily_goal:               stats.dailyGoal,
+    streak_freezes:           stats.streakFreezes,
+    freezes_earned_at_streak: stats.freezesEarnedAtStreak,
+  };
+}
+
 function dbToSession(row: any): StudySession {
   return {
     id: row.id,
@@ -90,21 +164,126 @@ export function useWordStore() {
   const [loading, setLoading]   = useState(true);
   const { toast } = useToast();
 
+  // Spiegels van state die schrijfacties nodig hebben. Callbacks worden vaak
+  // via setTimeout of een oude closure aangeroepen; via een ref rekenen ze
+  // altijd met de actuele waarden in plaats van met een verouderde snapshot.
+  const userIdRef = useRef<string | null>(null);
+  const statsRef  = useRef<UserStats>(DEFAULT_STATS);
+  /** Is de user_stats-rij daadwerkelijk uit de database gelezen (of aangemaakt)? */
+  const statsLoadedRef = useRef(false);
+  /** Velden die lokaal al zijn gewijzigd; die mogen niet door een herlees worden overschreven. */
+  const dirtyStatsRef  = useRef(new Set<keyof UserStats>());
+  /** Serialiseert schrijfacties naar user_stats zodat ze elkaar niet overschrijven. */
+  const statsWriteRef  = useRef<Promise<unknown>>(Promise.resolve());
+
+  const applyStats = useCallback((next: UserStats) => {
+    statsRef.current = next;
+    setStats(next);
+  }, []);
+
+  /**
+   * Stuur één sessie naar de database en haal hem uit de outbox zodra dat lukt.
+   * Retourneert de opgeslagen sessie, of null als het (nog) niet gelukt is.
+   */
+  const sendPendingSession = useCallback(async (
+    uid: string,
+    pending: PendingSession,
+  ): Promise<StudySession | null> => {
+    const base = {
+      user_id:       uid,
+      date:          pending.date,
+      words_studied: pending.wordsStudied,
+      correct:       pending.correct,
+      incorrect:     pending.incorrect,
+      duration:      pending.duration,
+    };
+
+    // client_id maakt opnieuw versturen idempotent: een sessie die al aankwam
+    // maar waarvan het antwoord verloren ging, wordt geen tweede rij.
+    let res = await withRetry(() => supabase
+      .from('study_sessions')
+      .upsert({ ...base, client_id: pending.clientId }, { onConflict: 'user_id,client_id' })
+      .select()
+      .maybeSingle());
+
+    if (res.error && needsClientIdFallback(res.error)) {
+      res = await withRetry(() => supabase
+        .from('study_sessions')
+        .insert(base)
+        .select()
+        .maybeSingle());
+    }
+
+    if (res.error) {
+      console.error('Sessie opslaan mislukt:', res.error.message);
+      return null;
+    }
+
+    unqueuePendingSession(uid, pending.clientId);
+    return res.data ? dbToSession(res.data) : null;
+  }, []);
+
+  const mergeSessions = useCallback((incoming: StudySession[]) => {
+    if (incoming.length === 0) return;
+    setSessions(prev => {
+      const known = new Set(prev.map(s => s.id));
+      const fresh = incoming.filter(s => !known.has(s.id));
+      if (fresh.length === 0) return prev;
+      return [...fresh, ...prev].sort((a, b) => b.date.localeCompare(a.date));
+    });
+  }, []);
+
+  /** Verstuur alles wat nog in de outbox staat (bij opstarten en na herstel van de verbinding). */
+  const flushPendingSessions = useCallback(async () => {
+    const uid = userIdRef.current;
+    if (!uid) return;
+    const queued = readPendingSessions(uid);
+    if (queued.length === 0) return;
+
+    const delivered: StudySession[] = [];
+    for (const pending of queued) {
+      const saved = await sendPendingSession(uid, pending);
+      if (saved) delivered.push(saved);
+    }
+    mergeSessions(delivered);
+  }, [sendPendingSession, mergeSessions]);
+
   const loadAll = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
     setUserId(user.id);
+    userIdRef.current = user.id;
 
     const [wordsRes, statsRes, sessionsRes, fsrsRes] = await Promise.all([
       supabase.from('words').select('*').order('created_at', { ascending: false }),
-      supabase.from('user_stats').select('*').single(),
+      // maybeSingle i.p.v. single: een ontbrekende rij is geen fout maar iets
+      // dat we hier aanmaken. Met single bleef stats op de defaults staan en
+      // schreef elke latere update naar nul rijen — zonder foutmelding.
+      supabase.from('user_stats').select('*').eq('user_id', user.id).maybeSingle(),
       supabase.from('study_sessions').select('*').order('date', { ascending: false }),
       supabase.from('card_fsrs_states').select('*'),
     ]);
 
     if (wordsRes.data)    setWords(wordsRes.data.map(dbToWord));
-    if (statsRes.data)    setStats(dbToStats(statsRes.data));
     if (sessionsRes.data) setSessions(sessionsRes.data.map(dbToSession));
+
+    if (statsRes.data) {
+      applyStats(dbToStats(statsRes.data));
+      dirtyStatsRef.current.clear();
+      statsLoadedRef.current = true;
+    } else if (!statsRes.error) {
+      // Nog geen statistiekenrij (bijv. na een handmatige datamigratie waarbij
+      // de signup-trigger niet liep). Maak hem nu aan, anders landt er nooit
+      // een streak-update.
+      const { error } = await withRetry(() => supabase
+        .from('user_stats')
+        .upsert(statsToRow(user.id, statsRef.current), { onConflict: 'user_id' })
+        .select());
+      statsLoadedRef.current = !error;
+      if (error) console.error('Aanmaken user_stats mislukt:', error.message);
+    } else {
+      console.error('Laden user_stats mislukt:', statsRes.error.message);
+    }
 
     if (fsrsRes.data) {
       const map: FsrsStatesMap = {};
@@ -117,7 +296,8 @@ export function useWordStore() {
     }
 
     setLoading(false);
-  }, []);
+    void flushPendingSessions();
+  }, [applyStats, flushPendingSessions]);
 
   useEffect(() => {
     loadAll();
@@ -127,15 +307,31 @@ export function useWordStore() {
         await loadAll();
       } else if (event === 'SIGNED_OUT') {
         setUserId(null);
+        userIdRef.current = null;
+        statsLoadedRef.current = false;
+        dirtyStatsRef.current.clear();
         setWords([]);
-        setStats(DEFAULT_STATS);
+        applyStats(DEFAULT_STATS);
         setSessions([]);
         setFsrsStates({});
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [loadAll]);
+  }, [loadAll, applyStats]);
+
+  // Zodra de verbinding terug is of de app weer op de voorgrond komt: alsnog
+  // versturen wat er blijven staan is.
+  useEffect(() => {
+    const retry = () => { void flushPendingSessions(); };
+    const onVisible = () => { if (document.visibilityState === 'visible') retry(); };
+    window.addEventListener('online', retry);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('online', retry);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [flushPendingSessions]);
 
   const addWords = useCallback(async (newWords: Omit<Word, 'id'>[]) => {
     if (!userId) return;
@@ -181,7 +377,7 @@ export function useWordStore() {
 
     if (Object.keys(dbUpdates).length === 0) return;
 
-    const { error } = await supabase.from('words').update(dbUpdates).eq('id', id);
+    const { error } = await withRetry(() => supabase.from('words').update(dbUpdates).eq('id', id));
     if (error) {
       toast({ title: 'Fout bij bijwerken', description: error.message, variant: 'destructive' });
       return;
@@ -209,10 +405,11 @@ export function useWordStore() {
     mode:   FsrsMode,
     state:  FsrsState,
   ) => {
-    if (!userId) return;
+    const uid = userIdRef.current;
+    if (!uid) return;
     const row = {
       card_id:          cardId,
-      user_id:          userId,
+      user_id:          uid,
       mode,
       stability:        state.stability,
       difficulty:       state.difficulty,
@@ -220,9 +417,9 @@ export function useWordStore() {
       last_reviewed_at: state.lastReviewedAt,
     };
 
-    const { error } = await supabase
+    const { error } = await withRetry(() => supabase
       .from('card_fsrs_states')
-      .upsert(row, { onConflict: 'card_id,mode' });
+      .upsert(row, { onConflict: 'card_id,mode' }));
 
     if (error) {
       toast({ title: 'Fout bij FSRS opslaan', description: error.message, variant: 'destructive' });
@@ -233,14 +430,15 @@ export function useWordStore() {
       ...prev,
       [cardId]: { ...(prev[cardId] ?? {}), [mode]: state },
     }));
-  }, [userId, toast]);
+  }, [toast]);
 
   /** Schrijf een FSRS review-log naar de database. */
   const addReviewLog = useCallback(async (log: FsrsReviewLog) => {
-    if (!userId) return;
-    const { error } = await supabase.from('review_logs').insert({
+    const uid = userIdRef.current;
+    if (!uid) return;
+    const { error } = await withRetry(() => supabase.from('review_logs').insert({
       card_id:       log.cardId,
-      user_id:       userId,
+      user_id:       uid,
       mode:          log.mode,
       grade:         log.grade,
       r_at_review:   log.rAtReview,
@@ -250,40 +448,93 @@ export function useWordStore() {
       d_after:       log.dAfter,
       interval_days: log.intervalDays,
       reviewed_at:   log.reviewedAt,
-    });
+    }));
     if (error) console.error('Review log opslaan mislukt:', error.message);
-  }, [userId]);
+  }, []);
+
+  /**
+   * Zorg dat we de werkelijke user_stats-rij kennen voordat we hem overschrijven.
+   * Mislukte de eerste load, dan lezen we hem hier alsnog en nemen we alleen de
+   * velden over die lokaal nog niet zijn aangepast.
+   */
+  const ensureStatsLoaded = useCallback(async (uid: string) => {
+    if (statsLoadedRef.current) return;
+
+    const { data, error } = await withRetry(() => supabase
+      .from('user_stats').select('*').eq('user_id', uid).maybeSingle());
+    if (error) return; // laat de upsert het proberen; die maakt de rij desnoods aan
+
+    if (data) {
+      const remote = dbToStats(data);
+      const merged: UserStats = { ...statsRef.current };
+      for (const field of Object.keys(remote) as (keyof UserStats)[]) {
+        if (!dirtyStatsRef.current.has(field)) Object.assign(merged, { [field]: remote[field] });
+      }
+      applyStats(merged);
+    }
+    statsLoadedRef.current = true;
+  }, [applyStats]);
 
   const updateStats = useCallback(async (updates: Partial<UserStats>) => {
-    if (!userId) return;
-    const dbUpdates: Record<string, any> = {};
-    if (updates.currentStreak          !== undefined) dbUpdates.current_streak           = updates.currentStreak;
-    if (updates.longestStreak          !== undefined) dbUpdates.longest_streak           = updates.longestStreak;
-    if (updates.lastStudyDate          !== undefined) dbUpdates.last_study_date          = updates.lastStudyDate;
-    if (updates.totalWordsLearned      !== undefined) dbUpdates.total_words_learned      = updates.totalWordsLearned;
-    if (updates.totalSessions          !== undefined) dbUpdates.total_sessions           = updates.totalSessions;
-    if (updates.dailyGoal              !== undefined) dbUpdates.daily_goal               = updates.dailyGoal;
-    if (updates.streakFreezes          !== undefined) dbUpdates.streak_freezes           = updates.streakFreezes;
-    if (updates.freezesEarnedAtStreak  !== undefined) dbUpdates.freezes_earned_at_streak = updates.freezesEarnedAtStreak;
+    const uid = userIdRef.current;
+    if (!uid) return false;
 
-    const { error } = await supabase.from('user_stats').update(dbUpdates).eq('user_id', userId);
-    if (error) {
-      toast({ title: 'Fout bij bijwerken stats', description: error.message, variant: 'destructive' });
-      return;
+    // Direct lokaal doorvoeren, zodat een volgende aanroep (bijv. de volgende
+    // kaart in dezelfde sessie) al met de nieuwe waarden rekent.
+    for (const field of Object.keys(updates) as (keyof UserStats)[]) {
+      if (updates[field] !== undefined) dirtyStatsRef.current.add(field);
     }
-    setStats(prev => ({ ...prev, ...updates }));
-  }, [userId, toast]);
+    applyStats({ ...statsRef.current, ...updates });
+
+    // Serialiseer de schrijfacties: parallelle updates zouden elkaars waarden
+    // anders overschrijven met een oudere snapshot.
+    const write = statsWriteRef.current.then(async () => {
+      try {
+        await ensureStatsLoaded(uid);
+
+        // Upsert i.p.v. update: ontbreekt de rij, dan wordt hij aangemaakt. Een
+        // kale update raakte in dat geval nul rijen én gaf geen fout terug, dus
+        // leek de streak opgeslagen terwijl er niets werd bewaard.
+        const { data, error } = await withRetry<Record<string, unknown>[]>(() => supabase
+          .from('user_stats')
+          .upsert(statsToRow(uid, statsRef.current), { onConflict: 'user_id' })
+          .select());
+
+        if (error) {
+          toast({ title: 'Fout bij bijwerken stats', description: error.message, variant: 'destructive' });
+          return false;
+        }
+        if (!data || data.length === 0) {
+          // Een upsert die niets teruggeeft betekent dat de rij is geweigerd
+          // (bijv. door RLS). Vroeger bleef dat volledig onopgemerkt.
+          toast({
+            title: 'Voortgang niet opgeslagen',
+            description: 'De database accepteerde de wijziging niet. Controleer je toegangsrechten.',
+            variant: 'destructive',
+          });
+          return false;
+        }
+        statsLoadedRef.current = true;
+        return true;
+      } catch (e) {
+        console.error('Stats opslaan mislukt:', e);
+        return false;
+      }
+    });
+
+    statsWriteRef.current = write;
+    return write;
+  }, [applyStats, ensureStatsLoaded, toast]);
 
   const updateStreak = useCallback(async () => {
-    const localDate = (offset = 0) => {
-      const d = new Date(Date.now() - offset * 86400000);
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    };
-    const today      = localDate(0);
-    const yesterday  = localDate(1);
-    const twoDaysAgo = localDate(2);
+    const today      = localDateKey(0);
+    const yesterday  = localDateKey(1);
+    const twoDaysAgo = localDateKey(2);
 
-    const newStats = { ...stats };
+    // Lees uit de ref, niet uit de closure: deze callback wordt vanuit oude
+    // renders en vanuit setTimeout aangeroepen. Met een verouderde snapshot
+    // werd de streak op een oude waarde herberekend of onnodig opnieuw gezet.
+    const newStats = { ...statsRef.current };
     if (newStats.lastStudyDate === today) return;
 
     let newStreak: number;
@@ -322,36 +573,45 @@ export function useWordStore() {
 
     if (freezeUsed)  toast({ title: '❄️ Streak freeze gebruikt!', description: `Je streak loopt door. Je hebt nog ${newFreezes} freeze${newFreezes === 1 ? '' : 's'} over.` });
     if (freezeEarned) toast({ title: '❄️ Freeze verdiend!',       description: `${newStreak} dagen streak — je hebt nu ${newFreezes} freeze${newFreezes === 1 ? '' : 's'}.` });
-  }, [stats, updateStats, toast]);
+  }, [updateStats, toast]);
 
   const addSession = useCallback(async (session: Omit<StudySession, 'id'>) => {
-    if (!userId) return;
-    const { data, error } = await supabase.from('study_sessions').insert({
-      user_id:       userId,
-      date:          session.date,
-      words_studied: session.wordsStudied,
-      correct:       session.correct,
-      incorrect:     session.incorrect,
-      duration:      session.duration,
-    }).select().single();
+    const uid = userIdRef.current;
+    if (!uid) return;
 
-    if (error) {
-      toast({ title: 'Fout bij opslaan sessie', description: error.message, variant: 'destructive' });
-      return;
+    // Eerst synchroon in de outbox. Gaat het versturen mis — of sluit de
+    // gebruiker de app voordat het antwoord binnen is — dan wordt de sessie
+    // bij de volgende start alsnog verstuurd in plaats van verloren te gaan.
+    const pending: PendingSession = { ...session, clientId: makeClientId() };
+    queuePendingSession(uid, pending);
+
+    const saved = await sendPendingSession(uid, pending);
+    if (saved) {
+      mergeSessions([saved]);
+    } else {
+      toast({
+        title: 'Les nog niet opgeslagen',
+        description: 'Geen verbinding met de server. We proberen het automatisch opnieuw.',
+      });
     }
-    if (data) setSessions(prev => [dbToSession(data), ...prev]);
 
+    // Tellers bijwerken vanuit de ref: `stats` uit de closure kon achterlopen
+    // waardoor het totaal terugsprong naar een oudere waarde.
     await updateStats({
-      totalSessions:    stats.totalSessions + 1,
-      totalWordsLearned: stats.totalWordsLearned + session.correct,
+      totalSessions:     statsRef.current.totalSessions + 1,
+      totalWordsLearned: statsRef.current.totalWordsLearned + session.correct,
     });
-  }, [userId, stats, updateStats, toast]);
+
+    // Een afgeronde les telt altijd voor de streak, ook als het per kaart
+    // wegschrijven eerder mislukte.
+    await updateStreak();
+  }, [sendPendingSession, mergeSessions, updateStats, updateStreak, toast]);
 
   return {
     words, stats, sessions, fsrsStates, userId, loading,
     addWords, updateWord, deleteWord,
     upsertFsrsState, addReviewLog,
-    updateStats, updateStreak, addSession,
+    updateStats, updateStreak, addSession, flushPendingSessions,
   };
 }
 
