@@ -1,18 +1,17 @@
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { Word } from '@/types/word';
-import { Volume2, Check, X, Minus } from 'lucide-react';
-import DiffHighlight from './DiffHighlight';
-import { formatTranslations } from '@/lib/translation-utils';
-
-type AnswerState = { result: 'correct' | 'almost' | 'wrong'; input: string };
+import { AccentRow, TypedInput } from '@/components/vocale/Input';
+import { Button, TextAction } from '@/components/vocale/Primitives';
+import PromptCard from './PromptCard';
 
 interface ListeningCardProps {
-  word: Word;
-  typedAnswer: string;
+  word:         Word;
+  typedAnswer:  string;
   onTypeAnswer: (v: string) => void;
-  answerState: AnswerState | null;
-  onSubmit: () => void;
-  onSkip?: () => void;
+  onSubmit:     () => void;
+  onSkip:       () => void;
+  onMute:       () => void;
+  flash:        boolean;
 }
 
 function speak(text: string) {
@@ -21,123 +20,86 @@ function speak(text: string) {
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = 'it-IT';
   utterance.rate = 0.85;
-  // Try to find an Italian voice
-  const voices = window.speechSynthesis.getVoices();
-  const italianVoice = voices.find(v => v.lang.startsWith('it'));
-  if (italianVoice) utterance.voice = italianVoice;
+  const italian = window.speechSynthesis.getVoices().find(v => v.lang.startsWith('it'));
+  if (italian) utterance.voice = italian;
   window.speechSynthesis.speak(utterance);
 }
 
 export default function ListeningCard({
-  word, typedAnswer, onTypeAnswer, answerState, onSubmit, onSkip,
+  word, typedAnswer, onTypeAnswer, onSubmit, onSkip, onMute, flash,
 }: ListeningCardProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-play on mount
   useEffect(() => {
     const play = () => speak(word.original);
-    if (window.speechSynthesis.getVoices().length > 0) {
-      play();
-    } else {
-      window.speechSynthesis.onvoiceschanged = play;
-    }
+    if (window.speechSynthesis.getVoices().length > 0) play();
+    else window.speechSynthesis.onvoiceschanged = play;
     return () => { window.speechSynthesis.onvoiceschanged = null; };
   }, [word.id, word.original]);
 
   useEffect(() => {
-    if (!answerState) {
-      const timers = [50, 150, 300].map(d =>
-        setTimeout(() => { inputRef.current?.focus(); inputRef.current?.click(); }, d)
-      );
-      return () => timers.forEach(clearTimeout);
-    }
-  }, [word.id, answerState]);
+    const timers = [50, 150, 300].map(delay =>
+      setTimeout(() => inputRef.current?.focus(), delay),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [word.id]);
 
-  const handleReplay = useCallback(() => speak(word.original), [word.original]);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !answerState) {
-      if (typedAnswer.trim()) onSubmit();
-      else onSkip?.();
-    }
-  };
-
+  const replay = useCallback(() => speak(word.original), [word.original]);
   const hasInput = typedAnswer.trim().length > 0;
 
+  const insertAccent = (char: string) => {
+    const field = inputRef.current;
+    if (!field) return;
+    const start = field.selectionStart ?? typedAnswer.length;
+    const end   = field.selectionEnd   ?? typedAnswer.length;
+    onTypeAnswer(typedAnswer.slice(0, start) + char + typedAnswer.slice(end));
+    requestAnimationFrame(() => {
+      field.focus();
+      field.setSelectionRange(start + char.length, start + char.length);
+    });
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="glass-card rounded-2xl p-8 text-center">
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-          Luister en typ wat je hoort
-        </span>
+    <>
+      <PromptCard
+        label="nieuw woord · luister en typ"
+        requirement="Je hoort het Italiaans. Typ wat je hoort."
+      >
+        {/* Geen luidsprekericoon: het systeem kent maar vier glyphs, dus tekst. */}
         <button
-          onClick={handleReplay}
-          className="mt-4 mx-auto flex items-center justify-center w-20 h-20 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors"
+          onClick={replay}
+          onMouseDown={e => e.preventDefault()}
+          className="h-14 w-full rounded-full bg-paper text-[17px] font-semibold text-ink transition-colors duration-[120ms] active:bg-[#DEDBDB]"
         >
-          <Volume2 className="h-10 w-10 text-primary" />
+          Opnieuw afspelen
         </button>
-        <p className="text-xs text-muted-foreground mt-3">Tik om opnieuw af te spelen</p>
-      </div>
+      </PromptCard>
 
-      {!answerState ? (
-        <div className="space-y-3">
-          <input
-            ref={inputRef}
-            type="text"
-            value={typedAnswer}
-            onChange={e => onTypeAnswer(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Typ wat je hoort..."
-            autoFocus
-            className="w-full rounded-xl bg-card border border-border px-4 py-3.5 text-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 text-center"
-          />
-          <button
-            onClick={hasInput ? onSubmit : onSkip}
-            className={`w-full rounded-xl px-6 py-3 text-sm font-semibold transition-opacity ${
-              hasInput
-                ? 'gradient-primary text-primary-foreground disabled:opacity-40'
-                : 'bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20'
-            }`}
-          >
-            {hasInput ? 'Controleer' : 'Ik weet het niet'}
-          </button>
-        </div>
-      ) : (
-        <ListeningFeedback word={word} answerState={answerState} />
-      )}
-    </div>
-  );
-}
+      <TypedInput
+        ref={inputRef}
+        value={typedAnswer}
+        flash={flash}
+        placeholder="typ het Italiaans"
+        onChange={e => onTypeAnswer(e.target.value)}
+        onKeyDown={(e: React.KeyboardEvent) => {
+          if (e.key !== 'Enter') return;
+          hasInput ? onSubmit() : onSkip();
+        }}
+      />
 
-function ListeningFeedback({ word, answerState }: { word: Word; answerState: AnswerState }) {
-  const { result, input } = answerState;
-  const config = {
-    correct: { icon: Check, label: 'Goed!', color: 'text-success', bg: 'bg-success/10 border-success/30' },
-    almost: { icon: Minus, label: 'Bijna!', color: 'text-warning', bg: 'bg-warning/10 border-warning/30' },
-    wrong: { icon: X, label: 'Fout', color: 'text-destructive', bg: 'bg-destructive/10 border-destructive/30' },
-  }[result];
-  const Icon = config.icon;
+      <AccentRow onInsert={insertAccent} />
 
-  return (
-    <div className="space-y-4 animate-slide-up">
-      <div className={`rounded-xl border p-4 flex items-center gap-3 ${config.bg}`}>
-        <Icon className={`h-6 w-6 ${config.color}`} />
-        <div>
-          <p className={`font-semibold ${config.color}`}>{config.label}</p>
-          {result === 'almost' ? (
-            <DiffHighlight input={input} correct={word.original} />
-          ) : result === 'wrong' && input && (
-            <p className="text-sm text-muted-foreground">
-              Jouw antwoord: <span className="text-foreground">{input}</span>
-            </p>
-          )}
-        </div>
+      <Button
+        className="mt-4"
+        variant={hasInput ? 'primary' : 'secondary'}
+        onClick={hasInput ? onSubmit : onSkip}
+      >
+        {hasInput ? 'Controleer' : 'Ik weet het niet'}
+      </Button>
+
+      <div className="mt-3 text-center">
+        <TextAction onClick={onMute}>luisteren 30 min uit</TextAction>
       </div>
-      <div className="glass-card rounded-xl p-4 text-center">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Het woord was</p>
-        <p className="text-2xl font-bold text-foreground">{word.original}</p>
-        <p className="text-sm text-muted-foreground mt-1">{formatTranslations(word.translation)}</p>
-      </div>
-    </div>
+    </>
   );
 }

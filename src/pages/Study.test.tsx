@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, within, act } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 /**
@@ -44,6 +44,8 @@ vi.mock('@/components/StoreProvider', () => ({
   useStore: () => ({
     words: H.state.words,
     fsrsStates: {},
+    sessions: [],
+    reviewLogs: [],
     upsertFsrsState: H.state.upsertFsrsState,
     addReviewLog: H.state.addReviewLog,
     updateStreak: H.state.updateStreak,
@@ -69,8 +71,8 @@ function renderStudy() {
   return render(<MemoryRouter><Study /></MemoryRouter>);
 }
 
-const IT_INPUT = 'Typ het Italiaanse woord...';
-const NL_INPUT = 'Typ de Nederlandse vertaling...';
+const IT_INPUT = 'typ het Italiaans';
+const NL_INPUT = 'typ het Nederlands';
 
 beforeEach(() => {
   H.state.words = [H.makeWord()];
@@ -91,14 +93,14 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     fireEvent.click(screen.getByText('Controleer'));
 
     // Feedback zichtbaar, inclusief het juiste antwoord
-    expect(screen.getByText('Fout')).toBeInTheDocument();
+    expect(screen.getByText('Nog niet.')).toBeInTheDocument();
     expect(screen.getByText('parlare')).toBeInTheDocument();
 
     // Correctie-opties aanwezig — de oefening is NIET doorgesprongen
     expect(screen.getByText('Toch goed rekenen')).toBeInTheDocument();
-    expect(screen.getByText('Woord aanpassen')).toBeInTheDocument();
+    expect(screen.getByText('Aanpassen')).toBeInTheDocument();
     expect(screen.getByText('Verder')).toBeInTheDocument();
-    expect(screen.queryByText('Sessie Voltooid!')).not.toBeInTheDocument();
+    expect(screen.queryByText('sessie afgerond')).not.toBeInTheDocument();
   });
 
   it('"Toch goed rekenen" rekent het antwoord goed en gaat door (zonder het woord te wijzigen)', () => {
@@ -109,7 +111,7 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     fireEvent.click(screen.getByText('Toch goed rekenen'));
 
     // Sessie afgerond met 1 goed woord; het woord zelf is niet aangepast
-    expect(screen.getByText('Sessie Voltooid!')).toBeInTheDocument();
+    expect(screen.getByText('sessie afgerond')).toBeInTheDocument();
     expect(H.state.updateWord).not.toHaveBeenCalledWith('w1', expect.objectContaining({ original: expect.anything() }));
     expect(H.state.addSession).toHaveBeenCalledTimes(1);
     const session = H.state.addSession.mock.calls[0][0];
@@ -124,16 +126,15 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
 
     fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
     fireEvent.click(screen.getByText('Controleer'));
-    expect(screen.getByText('Fout')).toBeInTheDocument();
+    expect(screen.getByText('Nog niet.')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('Woord aanpassen'));
+    fireEvent.click(screen.getByText('Aanpassen'));
     fireEvent.click(screen.getByText(/Mijn antwoord overnemen/));
     fireEvent.click(screen.getByText('Opslaan'));
 
     // Direct verwerkt: woord opgeslagen + beoordeling bijgewerkt naar Goed
     expect(H.state.updateWord).toHaveBeenCalledWith('w1', { original: 'parlare', translation: 'praten' });
-    const banner = screen.getByText(/beoordeling bijgewerkt naar/i);
-    expect(within(banner).getByText('Goed')).toBeInTheDocument();
+    expect(screen.getByText('Aangepast — nu goed gerekend.')).toBeInTheDocument();
     // "Toch goed rekenen" is weg omdat het al goed staat
     expect(screen.queryByText('Toch goed rekenen')).not.toBeInTheDocument();
   });
@@ -145,15 +146,14 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     // Prompt toont het Italiaans; gebruiker typt een geldig synoniem dat nog niet opgeslagen is
     fireEvent.change(screen.getByPlaceholderText(NL_INPUT), { target: { value: 'kletsen' } });
     fireEvent.click(screen.getByText('Controleer'));
-    expect(screen.getByText('Fout')).toBeInTheDocument();
+    expect(screen.getByText('Nog niet.')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('Woord aanpassen'));
+    fireEvent.click(screen.getByText('Aanpassen'));
     fireEvent.click(screen.getByText(/Mijn antwoord toevoegen als betekenis/));
     fireEvent.click(screen.getByText('Opslaan'));
 
     expect(H.state.updateWord).toHaveBeenCalledWith('w1', { original: 'parlare', translation: 'praten; kletsen' });
-    const banner = screen.getByText(/beoordeling bijgewerkt naar/i);
-    expect(within(banner).getByText('Goed')).toBeInTheDocument();
+    expect(screen.getByText('Aangepast — nu goed gerekend.')).toBeInTheDocument();
   });
 
   it('"Verder" na een fout antwoord laat het woord terugkomen als herkansing (niet verloren)', () => {
@@ -164,7 +164,7 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     fireEvent.click(screen.getByText('Verder'));
 
     // Niet afgerond: hetzelfde woord komt terug om opnieuw te oefenen
-    expect(screen.queryByText('Sessie Voltooid!')).not.toBeInTheDocument();
+    expect(screen.queryByText('sessie afgerond')).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText(IT_INPUT)).toBeInTheDocument();
   });
 
@@ -173,19 +173,25 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     renderStudy();
 
     // Kies een fout (altijd aanwezige) optie
+    vi.useFakeTimers();
     fireEvent.click(screen.getByText('onbekend'));
+    act(() => { vi.advanceTimersByTime(800); });
+    vi.useRealTimers();
 
     expect(screen.getByText('Toch goed rekenen')).toBeInTheDocument();
-    expect(screen.getByText('Woord aanpassen')).toBeInTheDocument();
+    expect(screen.getByText('Aanpassen')).toBeInTheDocument();
     expect(screen.getByText('Verder')).toBeInTheDocument();
-    expect(screen.queryByText('Sessie Voltooid!')).not.toBeInTheDocument();
+    expect(screen.queryByText('sessie afgerond')).not.toBeInTheDocument();
   });
 
   it('meerkeuze: "Toch goed rekenen" telt het woord goed en gaat verder', () => {
     H.state.queue = [{ cardId: 'w1', mode: 'mc', dueDate: null }];
     renderStudy();
 
+    vi.useFakeTimers();
     fireEvent.click(screen.getByText('onbekend'));
+    act(() => { vi.advanceTimersByTime(800); });
+    vi.useRealTimers();
     fireEvent.click(screen.getByText('Toch goed rekenen'));
 
     // Doorgegaan: het woord komt als typ-oefening terug (geen MC-correctie meer)
@@ -197,8 +203,11 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     H.state.queue = [{ cardId: 'w1', mode: 'mc', dueDate: null }];
     renderStudy();
 
+    vi.useFakeTimers();
     fireEvent.click(screen.getByText('onbekend'));
-    fireEvent.click(screen.getByText('Woord aanpassen'));
+    act(() => { vi.advanceTimersByTime(800); });
+    vi.useRealTimers();
+    fireEvent.click(screen.getByText('Aanpassen'));
 
     // Bij meerkeuze is er geen "mijn antwoord overnemen"-knop
     expect(screen.queryByText(/Mijn antwoord/)).not.toBeInTheDocument();
@@ -207,7 +216,7 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     fireEvent.click(screen.getByText('Opslaan'));
 
     expect(H.state.updateWord).toHaveBeenCalledWith('w1', { original: 'parlare', translation: 'praten; babbelen' });
-    expect(screen.getByText('Woord aangepast')).toBeInTheDocument();
+    expect(screen.getByText(/woord aangepast/)).toBeInTheDocument();
   });
 
   it('een correct antwoord gaat na de feedback nog steeds automatisch door (geen regressie)', () => {
@@ -218,13 +227,13 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
       fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
       fireEvent.click(screen.getByText('Controleer'));
 
-      // Correct: feedback zichtbaar, geen correctie-pauze
-      expect(screen.getByText('Goed!')).toBeInTheDocument();
+      // Correct: geen verdict-tekst, alleen de flits — en geen correctie-pauze
+      expect(screen.queryByText('Nog niet.')).not.toBeInTheDocument();
       expect(screen.queryByText('Verder')).not.toBeInTheDocument();
-      expect(screen.queryByText('Sessie Voltooid!')).not.toBeInTheDocument();
+      expect(screen.queryByText('sessie afgerond')).not.toBeInTheDocument();
 
-      act(() => { vi.advanceTimersByTime(1600); });
-      expect(screen.getByText('Sessie Voltooid!')).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(400); });
+      expect(screen.getByText('sessie afgerond')).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -248,7 +257,7 @@ describe('Study – elke les wordt opgeslagen', () => {
 
       fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
       fireEvent.click(screen.getByText('Controleer'));
-      act(() => { vi.advanceTimersByTime(1600); });
+      act(() => { vi.advanceTimersByTime(400); });
 
       // Nog midden in de les: nog niets weggeschreven.
       expect(H.state.addSession).not.toHaveBeenCalled();
@@ -272,9 +281,9 @@ describe('Study – elke les wordt opgeslagen', () => {
 
       fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
       fireEvent.click(screen.getByText('Controleer'));
-      act(() => { vi.advanceTimersByTime(1600); });
+      act(() => { vi.advanceTimersByTime(400); });
 
-      expect(screen.getByText('Sessie Voltooid!')).toBeInTheDocument();
+      expect(screen.getByText('sessie afgerond')).toBeInTheDocument();
       expect(H.state.addSession).toHaveBeenCalledTimes(1);
 
       unmount();

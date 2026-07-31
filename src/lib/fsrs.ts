@@ -4,9 +4,9 @@
 
 const F = 19 / 81;
 const C = -0.5;
-const DESIRED_RETENTION = 0.9;
+export const DESIRED_RETENTION = 0.9;
 
-const W = [
+export const W = [
   0.40255, 1.18385, 3.173,   15.69105, 7.1949,  0.5345, 1.4604,
   0.0046,  1.54575, 0.1192,   1.01925,  1.9395,  0.11,   0.29605,
   2.2698,  0.2315,  2.9898,   0.51655,  0.6621,
@@ -59,6 +59,8 @@ export interface FsrsReviewLog {
   dAfter:       number;
   intervalDays: number;
   reviewedAt:   string;
+  /** Tijd tot de eerste toets, in ms. Null voor modi zonder invoer. */
+  responseMs:   number | null;
 }
 
 export interface QueueItem {
@@ -120,7 +122,7 @@ export function reviewCard(
   state: FsrsState,
   grade: FsrsGrade,
   today: string // YYYY-MM-DD
-): { newState: FsrsState; logPartial: Omit<FsrsReviewLog, 'cardId' | 'mode'> } {
+): { newState: FsrsState; logPartial: Omit<FsrsReviewLog, 'cardId' | 'mode' | 'responseMs'> } {
   const isNew    = state.stability === null;
   const sBefore  = state.stability;
   const dBefore  = state.difficulty;
@@ -299,6 +301,61 @@ function fisherYates<T>(arr: T[]): void {
   }
 }
 
+// ─── WOORDTOESTAND VANUIT FSRS ───────────────────────────────────────────────
+
+/** Onder deze retrievability op vandaag heet een woord vervallen (wankel). */
+export const LAPSED_RETRIEVABILITY = 0.7;
+
+/** Vanaf deze stabiliteit heet een woord verankerd (vast). */
+export const ANCHOR_DAYS = 90;
+
+/** wankel = vervallen · actief = in de cyclus · vast = verankerd · nieuw = nooit gezien */
+export type WordState = 'lapsed' | 'active' | 'anchored' | 'new';
+
+/** De sterkste state over alle modi; die bepaalt hoe het woord ervoor staat. */
+export function strongestState(
+  states: Partial<Record<FsrsMode, FsrsState>>
+): FsrsState | null {
+  let best: FsrsState | null = null;
+  for (const mode of FSRS_MODES) {
+    const s = states[mode];
+    if (s?.stability == null) continue;
+    if (!best || s.stability > best.stability!) best = s;
+  }
+  return best;
+}
+
+/**
+ * Retrievability van een woord op `today` — de kans dat je het nu nog weet.
+ * Null voor een woord dat nog geen enkele review heeft gehad.
+ */
+export function retrievabilityToday(state: FsrsState, today: string): number | null {
+  if (state.stability == null) return null;
+  const lastDate = state.lastReviewedAt ? state.lastReviewedAt.split('T')[0] : null;
+  if (!lastDate) return null;
+  return retrievability(Math.max(1, daysBetween(lastDate, today)), state.stability);
+}
+
+/** Gemiddelde stabiliteit in dagen — hoe lang je woordenschat nog meegaat. */
+export function shelfLifeDays(state: FsrsState | null): number | null {
+  return state?.stability ?? null;
+}
+
+export function wordState(
+  states: Partial<Record<FsrsMode, FsrsState>>,
+  today: string,
+): WordState {
+  const best = strongestState(states);
+  if (!best) return 'new';
+
+  // Vervallen gaat vóór verankerd: een woord dat je 300 dagen niet zag is
+  // wankel, hoe hoog de stabiliteit ook stond toen je het voor het laatst deed.
+  const r = retrievabilityToday(best, today);
+  if (r !== null && r < LAPSED_RETRIEVABILITY) return 'lapsed';
+  if (best.stability! >= ANCHOR_DAYS) return 'anchored';
+  return 'active';
+}
+
 // ─── MASTERY SCORE VANUIT FSRS ────────────────────────────────────────────────
 
 /**
@@ -343,12 +400,12 @@ export const MODE_LABELS: Record<FsrsMode, string> = {
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
-function daysBetween(from: string, to: string): number {
+export function daysBetween(from: string, to: string): number {
   const diff = new Date(to).getTime() - new Date(from).getTime();
   return Math.max(0, Math.round(diff / 86_400_000));
 }
 
-function addDays(date: string, days: number): string {
+export function addDays(date: string, days: number): string {
   const d = new Date(date);
   d.setDate(d.getDate() + days);
   return d.toISOString().split('T')[0];

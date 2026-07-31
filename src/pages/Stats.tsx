@@ -238,14 +238,14 @@ export default function Stats() {
 
   if (loading) {
     return (
-      <div className="space-y-6 animate-slide-up">
+      <div className="space-y-6 ">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Voortgang & Stats</h1>
           <p className="text-sm text-muted-foreground mt-1">Je vocabulaire-reis in data.</p>
         </div>
         <div className="space-y-3">
           {[1, 2, 3].map(i => (
-            <div key={i} className="glass-card rounded-xl p-5 h-24 animate-pulse" />
+            <div key={i} className="bg-card rounded-xl p-5 h-24 animate-pulse" />
           ))}
         </div>
       </div>
@@ -253,14 +253,14 @@ export default function Stats() {
   }
 
   return (
-    <div className="space-y-6 animate-slide-up">
+    <div className="space-y-6 ">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Voortgang & Stats</h1>
         <p className="text-sm text-muted-foreground mt-1">Je vocabulaire-reis in data.</p>
       </div>
 
       {/* Time to Mastery — primary insight */}
-      <div className="glass-card rounded-xl p-5">
+      <div className="bg-card rounded-xl p-5">
         <div className="flex items-center gap-2 mb-4">
           <Trophy className="h-4 w-4 text-accent" />
           <h3 className="text-sm font-semibold text-foreground">Tijd tot Mastery</h3>
@@ -292,7 +292,7 @@ export default function Stats() {
               </div>
             </div>
             <div className="h-2 bg-border rounded-full overflow-hidden mb-3">
-              <div className="h-full gradient-accent transition-all" style={{ width: `${mastery.masteredPct}%` }} />
+              <div className="h-full bg-active transition-all" style={{ width: `${mastery.masteredPct}%` }} />
             </div>
             <div className="text-[10px] text-muted-foreground space-y-1">
               <p>· Stabiele woorden (laatste 30 dagen): <span className="text-foreground font-medium">{mastery.recentlyStable}</span></p>
@@ -315,7 +315,7 @@ export default function Stats() {
               </div>
             </div>
             <div className="h-2 bg-border rounded-full overflow-hidden mb-2">
-              <div className="h-full gradient-accent transition-all" style={{ width: `${mastery.masteredPct}%` }} />
+              <div className="h-full bg-active transition-all" style={{ width: `${mastery.masteredPct}%` }} />
             </div>
             <p className="text-[10px] text-muted-foreground">
               Tempo: ~{mastery.perDay.toFixed(1)} woord-equivalent{mastery.perDay >= 2 ? 'en' : ''}/studiedag
@@ -329,7 +329,7 @@ export default function Stats() {
 
       {/* Quick metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="glass-card rounded-xl p-4">
+        <div className="bg-card rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="h-4 w-4 text-accent" />
             <span className="text-[10px] uppercase tracking-wider text-accent font-medium">Geleerd</span>
@@ -337,7 +337,7 @@ export default function Stats() {
           <p className="text-3xl font-bold text-foreground">{words.length}</p>
           <p className="text-[10px] text-muted-foreground mt-1">woorden totaal</p>
         </div>
-        <div className="glass-card rounded-xl p-4">
+        <div className="bg-card rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
             <Heart className="h-4 w-4 text-destructive" />
             <span className="text-[10px] uppercase tracking-wider text-destructive font-medium">Te Herhalen</span>
@@ -345,15 +345,15 @@ export default function Stats() {
           <p className="text-3xl font-bold text-foreground">{dueCount}</p>
           <p className="text-[10px] text-muted-foreground mt-1">focus vereist</p>
         </div>
-        <div className="glass-card rounded-xl p-4">
+        <div className="bg-card rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
-            <Flame className="h-4 w-4 text-streak" />
-            <span className="text-[10px] uppercase tracking-wider text-streak font-medium">Streak</span>
+            <Flame className="h-4 w-4 text-active" />
+            <span className="text-[10px] uppercase tracking-wider text-active font-medium">Streak</span>
           </div>
           <p className="text-3xl font-bold text-foreground">{stats.currentStreak}</p>
           <p className="text-[10px] text-muted-foreground mt-1">dagen op rij</p>
         </div>
-        <div className="glass-card rounded-xl p-4">
+        <div className="bg-card rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
             <Clock className="h-4 w-4 text-primary" />
             <span className="text-[10px] uppercase tracking-wider text-primary font-medium">Sessies</span>
@@ -374,7 +374,7 @@ export default function Stats() {
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Prestatie</p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="glass-card rounded-xl p-5">
+          <div className="bg-card rounded-xl p-5">
             <div className="flex items-center gap-2 mb-4">
               <Target className="h-4 w-4 text-primary" />
               <h3 className="text-sm font-semibold text-foreground">Beheersing</h3>
@@ -386,7 +386,7 @@ export default function Stats() {
                 {[
                   { label: 'Stabiel', count: stableWords, color: 'bg-accent' },
                   { label: 'Herhaling', count: reviewWords, color: 'bg-primary' },
-                  { label: 'Aan het leren', count: learningWords, color: 'bg-streak' },
+                  { label: 'Aan het leren', count: learningWords, color: 'bg-active' },
                   { label: 'Nieuw', count: newWords, color: 'bg-muted-foreground' },
                 ].map(row => {
                   const pct = Math.round((row.count / totalStatus) * 100);
@@ -406,7 +406,7 @@ export default function Stats() {
             )}
           </div>
 
-          <div className="glass-card rounded-xl p-5">
+          <div className="bg-card rounded-xl p-5">
             <div className="flex items-center gap-2 mb-4">
               <Target className="h-4 w-4 text-accent" />
               <h3 className="text-sm font-semibold text-foreground">Nauwkeurigheid</h3>
@@ -426,7 +426,7 @@ export default function Stats() {
         </div>
 
         {hardestWords.length > 0 && (
-          <div className="glass-card rounded-xl p-5">
+          <div className="bg-card rounded-xl p-5">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 text-destructive" />
@@ -463,7 +463,7 @@ export default function Stats() {
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Details</p>
 
         {sessions.length > 0 && (
-          <div className="glass-card rounded-xl p-5">
+          <div className="bg-card rounded-xl p-5">
             <div className="flex items-center gap-2 mb-4">
               <Timer className="h-4 w-4 text-primary" />
               <h3 className="text-sm font-semibold text-foreground">Studietijd</h3>
@@ -486,7 +486,7 @@ export default function Stats() {
         )}
 
         {categories.length > 0 && (
-          <div className="glass-card rounded-xl p-5">
+          <div className="bg-card rounded-xl p-5">
             <h3 className="text-sm font-semibold text-foreground mb-4">Categorieën</h3>
             <div className="space-y-3">
               {categories.slice(0, 5).map(([cat, count]) => {
@@ -506,7 +506,7 @@ export default function Stats() {
         )}
 
         {recentSessions.length > 0 && (
-          <div className="glass-card rounded-xl p-5">
+          <div className="bg-card rounded-xl p-5">
             <h3 className="text-sm font-semibold text-foreground mb-4">Recente Activiteit</h3>
             <div className="space-y-3">
               {recentSessions.map(s => {
@@ -526,7 +526,7 @@ export default function Stats() {
                 }
                 return (
                   <div key={s.id} className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-full gradient-primary flex items-center justify-center shrink-0">
+                    <div className="h-8 w-8 rounded-full bg-active flex items-center justify-center shrink-0">
                       <BarChart3 className="h-4 w-4 text-primary-foreground" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -545,7 +545,7 @@ export default function Stats() {
           </div>
         )}
 
-        <div className="glass-card rounded-xl p-5">
+        <div className="bg-card rounded-xl p-5">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-foreground">❄️ Streak Freezes</h3>
             <span className="text-sm font-bold text-primary">{stats.streakFreezes} / 3</span>
@@ -561,7 +561,7 @@ export default function Stats() {
       </div>
 
       {words.length === 0 && sessions.length === 0 && (
-        <div className="glass-card rounded-xl p-8 text-center">
+        <div className="bg-card rounded-xl p-8 text-center">
           <BarChart3 className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
           <p className="text-muted-foreground">Begin met leren om statistieken te zien.</p>
         </div>

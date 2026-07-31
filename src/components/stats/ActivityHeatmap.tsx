@@ -127,7 +127,7 @@ export function ActivityHeatmap({ sessions }: Props) {
   }, [counts]);
 
   return (
-    <div className="glass-card rounded-xl p-5 overflow-hidden">
+    <div className="bg-card rounded-xl p-5 overflow-hidden">
       {/* Header met periode-selector */}
       <div className="flex items-start justify-between mb-4 gap-3 flex-wrap">
         <div>
@@ -160,8 +160,8 @@ export function ActivityHeatmap({ sessions }: Props) {
 
       {/* Streak banner */}
       <div className="grid grid-cols-2 gap-2 mb-4">
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-streak/10 border border-streak/20">
-          <Flame className="h-5 w-5 text-streak shrink-0" />
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-active/10 border border-active/20">
+          <Flame className="h-5 w-5 text-active shrink-0" />
           <div className="min-w-0">
             <p className="text-xl font-bold text-foreground leading-none">{current}</p>
             <p className="text-[10px] text-muted-foreground mt-1">huidige streak</p>
@@ -191,7 +191,7 @@ export function ActivityHeatmap({ sessions }: Props) {
                 >
                   <div
                     className={`w-full rounded-t transition-all ${
-                      isToday ? 'gradient-accent' : d.count > 0 ? 'gradient-primary' : 'bg-border'
+                      isToday ? 'bg-active' : d.count > 0 ? 'bg-active' : 'bg-border'
                     }`}
                     style={{ height: `${heightPct}%` }}
                   />

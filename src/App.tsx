@@ -6,10 +6,12 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { StoreProvider } from "@/components/StoreProvider";
 import { supabase } from "@/integrations/supabase/client";
-import Layout from "@/components/Layout";
 import Dashboard from "./pages/Dashboard";
 import Study from "./pages/Study";
 import WordBank from "./pages/WordBank";
+import AddWords from "./pages/AddWords";
+import Menu from "./pages/Menu";
+import FsrsParams from "./pages/FsrsParams";
 import Stats from "./pages/Stats";
 import Profile from "./pages/Profile";
 import Auth from "./pages/Auth";
@@ -34,8 +36,8 @@ const App = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-pulse text-primary text-lg font-semibold">Laden...</div>
+      <div className="flex min-h-screen items-center justify-center bg-paper">
+        <span className="text-[15px] text-ink-weak">laden</span>
       </div>
     );
   }
@@ -59,15 +61,17 @@ const App = () => {
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            {/* Eén product, één oppervlak: geen tabs, geen bottom bar — de hamburger is de navigatie. */}
             <Routes>
-              <Route element={<Layout />}>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/studeren" element={<Study />} />
-                <Route path="/toevoegen" element={<WordBank />} />
-                <Route path="/statistieken" element={<Stats />} />
-                <Route path="/profiel" element={<Profile />} />
-              </Route>
-              <Route path="*" element={<NotFound />} />
+              <Route path="/"              element={<Dashboard />} />
+              <Route path="/studeren"      element={<Study />} />
+              <Route path="/woordenbank"   element={<WordBank />} />
+              <Route path="/toevoegen"     element={<AddWords />} />
+              <Route path="/menu"          element={<Menu />} />
+              <Route path="/fsrs"          element={<FsrsParams />} />
+              <Route path="/statistieken"  element={<Stats />} />
+              <Route path="/profiel"       element={<Profile />} />
+              <Route path="*"              element={<NotFound />} />
             </Routes>
           </BrowserRouter>
         </StoreProvider>

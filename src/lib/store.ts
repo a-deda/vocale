@@ -11,6 +11,14 @@ import {
 
 export type FsrsStatesMap = Record<string, Partial<Record<FsrsMode, FsrsState>>>;
 
+/** Een gelezen review-log; het overzicht leidt hier houdbaarheid en tempo uit af. */
+export type ReviewLogRow = Pick<
+  FsrsReviewLog, 'cardId' | 'mode' | 'grade' | 'sBefore' | 'sAfter' | 'reviewedAt' | 'responseMs'
+>;
+
+/** Zoveel recente reviews zijn genoeg voor de cijfers op het overzicht. */
+const REVIEW_LOG_WINDOW = 500;
+
 const DEFAULT_STATS: UserStats = {
   currentStreak: 0,
   longestStreak: 0,
@@ -142,6 +150,18 @@ function dbToSession(row: any): StudySession {
   };
 }
 
+function dbToReviewLog(row: any): ReviewLogRow {
+  return {
+    cardId:     row.card_id,
+    mode:       row.mode as FsrsMode,
+    grade:      row.grade,
+    sBefore:    row.s_before,
+    sAfter:     row.s_after,
+    reviewedAt: row.reviewed_at,
+    responseMs: row.response_ms ?? null,
+  };
+}
+
 function dbToFsrsState(row: any): { cardId: string; mode: FsrsMode; state: FsrsState } {
   return {
     cardId: row.card_id,
@@ -160,6 +180,7 @@ export function useWordStore() {
   const [stats, setStats]       = useState<UserStats>(DEFAULT_STATS);
   const [sessions, setSessions] = useState<StudySession[]>([]);
   const [fsrsStates, setFsrsStates] = useState<FsrsStatesMap>({});
+  const [reviewLogs, setReviewLogs] = useState<ReviewLogRow[]>([]);
   const [userId, setUserId]     = useState<string | null>(null);
   const [loading, setLoading]   = useState(true);
   const { toast } = useToast();
@@ -254,7 +275,7 @@ export function useWordStore() {
     setUserId(user.id);
     userIdRef.current = user.id;
 
-    const [wordsRes, statsRes, sessionsRes, fsrsRes] = await Promise.all([
+    const [wordsRes, statsRes, sessionsRes, fsrsRes, logsRes] = await Promise.all([
       supabase.from('words').select('*').order('created_at', { ascending: false }),
       // maybeSingle i.p.v. single: een ontbrekende rij is geen fout maar iets
       // dat we hier aanmaken. Met single bleef stats op de defaults staan en
@@ -262,10 +283,13 @@ export function useWordStore() {
       supabase.from('user_stats').select('*').eq('user_id', user.id).maybeSingle(),
       supabase.from('study_sessions').select('*').order('date', { ascending: false }),
       supabase.from('card_fsrs_states').select('*'),
+      supabase.from('review_logs').select('*')
+        .order('reviewed_at', { ascending: false }).limit(REVIEW_LOG_WINDOW),
     ]);
 
     if (wordsRes.data)    setWords(wordsRes.data.map(dbToWord));
     if (sessionsRes.data) setSessions(sessionsRes.data.map(dbToSession));
+    if (logsRes.data)     setReviewLogs(logsRes.data.map(dbToReviewLog));
 
     if (statsRes.data) {
       applyStats(dbToStats(statsRes.data));
@@ -314,6 +338,7 @@ export function useWordStore() {
         applyStats(DEFAULT_STATS);
         setSessions([]);
         setFsrsStates({});
+        setReviewLogs([]);
       }
     });
 
@@ -436,6 +461,19 @@ export function useWordStore() {
   const addReviewLog = useCallback(async (log: FsrsReviewLog) => {
     const uid = userIdRef.current;
     if (!uid) return;
+
+    // Meteen lokaal bijhouden: het overzicht leest houdbaarheid en tempo uit
+    // deze logs, en die moeten kloppen zodra je terug bent van een sessie.
+    setReviewLogs(prev => [{
+      cardId:     log.cardId,
+      mode:       log.mode,
+      grade:      log.grade,
+      sBefore:    log.sBefore,
+      sAfter:     log.sAfter,
+      reviewedAt: log.reviewedAt,
+      responseMs: log.responseMs,
+    }, ...prev].slice(0, REVIEW_LOG_WINDOW));
+
     const { error } = await withRetry(() => supabase.from('review_logs').insert({
       card_id:       log.cardId,
       user_id:       uid,
@@ -448,6 +486,7 @@ export function useWordStore() {
       d_after:       log.dAfter,
       interval_days: log.intervalDays,
       reviewed_at:   log.reviewedAt,
+      response_ms:   log.responseMs,
     }));
     if (error) console.error('Review log opslaan mislukt:', error.message);
   }, []);
@@ -608,7 +647,7 @@ export function useWordStore() {
   }, [sendPendingSession, mergeSessions, updateStats, updateStreak, toast]);
 
   return {
-    words, stats, sessions, fsrsStates, userId, loading,
+    words, stats, sessions, fsrsStates, reviewLogs, userId, loading,
     addWords, updateWord, deleteWord,
     upsertFsrsState, addReviewLog,
     updateStats, updateStreak, addSession, flushPendingSessions,
