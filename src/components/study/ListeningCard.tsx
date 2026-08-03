@@ -83,7 +83,7 @@ export default function ListeningCard({
         onChange={e => onTypeAnswer(e.target.value)}
         onKeyDown={(e: React.KeyboardEvent) => {
           if (e.key !== 'Enter') return;
-          hasInput ? onSubmit() : onSkip();
+          if (hasInput) onSubmit(); else onSkip();
         }}
       />
 

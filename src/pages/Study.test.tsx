@@ -59,6 +59,11 @@ vi.mock('@/components/StoreProvider', () => ({
   }),
 }));
 
+// Study leest `localDateKey` uit `@/lib/store`, dat bij import de echte
+// Supabase-client opbouwt. Zonder deze mock valt de suite om op ontbrekende
+// omgevingsvariabelen.
+vi.mock('@/integrations/supabase/client', () => ({ supabase: {} }));
+
 // Maak de wachtrij deterministisch; laat de rest van fsrs (grading) echt.
 vi.mock('@/lib/fsrs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/fsrs')>();

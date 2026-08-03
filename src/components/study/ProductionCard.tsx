@@ -70,7 +70,7 @@ export default function ProductionCard({
         onChange={e => onTypeAnswer(e.target.value)}
         onKeyDown={(e: React.KeyboardEvent) => {
           if (e.key !== 'Enter') return;
-          hasInput ? onSubmit() : onSkip();
+          if (hasInput) onSubmit(); else onSkip();
         }}
       />
 
