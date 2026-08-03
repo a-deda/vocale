@@ -52,19 +52,19 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-sm space-y-8 animate-slide-up">
+      <div className="w-full max-w-sm space-y-8 ">
         <div className="text-center">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl gradient-primary mb-4">
+          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-active mb-4">
             <BookOpen className="h-8 w-8 text-primary-foreground" />
           </div>
-          <h1 className="text-3xl font-bold text-gradient-primary">Lexis</h1>
+          <h1 className="text-3xl font-bold text-bg-active">Lexis</h1>
           <p className="text-sm text-muted-foreground mt-2">
             {isLogin ? 'Welkom terug! Log in om verder te leren.' : 'Maak een account aan om te beginnen.'}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="glass-card rounded-xl p-5 space-y-4">
+          <div className="bg-card rounded-xl p-5 space-y-4">
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">E-mail</label>
               <div className="relative">
@@ -99,7 +99,7 @@ export default function Auth() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full gradient-primary rounded-xl py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50 hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+            className="w-full bg-active rounded-xl py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50 hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             {isLogin ? 'Inloggen' : 'Account Aanmaken'}

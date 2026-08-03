@@ -2,116 +2,66 @@
 @tailwind components;
 @tailwind utilities;
 
-
-
+/* Vocale — paper, ink, correction, loss. Every colour carries meaning; none is decorative. */
 @layer base {
   :root {
-    --background: 240 10% 6%;
-    --foreground: 0 0% 95%;
+    --paper: #EBE9E9;
+    --card: #FFFFFF;
+    --ink: #011936;
+    --ink-weak: #55637A;
+    --steel: #8B9EB7;
+    --active: #D19C1D;
+    --lapsed: #E3170A;
+    --line-hairline: rgba(139, 158, 183, 0.45);
+    --hairline-ink: rgba(1, 25, 54, 0.1);
 
-    --card: 240 8% 10%;
-    --card-foreground: 0 0% 95%;
+    --action-press: #B98A1A;
+    --card-press: #F1F0F1;
 
-    --popover: 240 8% 12%;
-    --popover-foreground: 0 0% 95%;
-
-    --primary: 265 80% 60%;
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 240 6% 16%;
-    --secondary-foreground: 0 0% 90%;
-
-    --muted: 240 6% 14%;
-    --muted-foreground: 240 5% 55%;
-
-    --accent: 180 70% 50%;
-    --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 70% 55%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 240 6% 18%;
-    --input: 240 6% 18%;
-    --ring: 265 80% 60%;
-
-    --radius: 0.75rem;
-
-    --streak: 28 90% 55%;
-    --success: 150 60% 45%;
-    --warning: 40 90% 55%;
-
-    --gradient-primary: linear-gradient(135deg, hsl(265 80% 60%), hsl(280 70% 50%));
-    --gradient-accent: linear-gradient(135deg, hsl(180 70% 50%), hsl(200 80% 55%));
-    --gradient-streak: linear-gradient(135deg, hsl(28 90% 55%), hsl(15 85% 50%));
-    --gradient-card: linear-gradient(145deg, hsl(240 8% 12%), hsl(240 8% 8%));
-
-    --sidebar-background: 240 10% 8%;
-    --sidebar-foreground: 0 0% 85%;
-    --sidebar-primary: 265 80% 60%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 6% 14%;
-    --sidebar-accent-foreground: 0 0% 95%;
-    --sidebar-border: 240 6% 16%;
-    --sidebar-ring: 265 80% 60%;
+    --ease-standard: cubic-bezier(0.2, 0, 0.2, 1);
+    --dur-press: 120ms;
+    --dur-flash: 200ms;
+    --dur-screen: 220ms;
   }
-}
 
-/* Dynamische top-padding voor mobiele layout die rekening houdt met iOS safe area */
-.main-content {
-  padding-top: calc(3.5rem + env(safe-area-inset-top));
-}
-@media (min-width: 768px) {
-  .main-content {
-    padding-top: 0;
-  }
-}
-
-@layer base {
   * {
-    @apply border-border;
+    border-color: var(--line-hairline);
+  }
+
+  html {
+    background: var(--paper);
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased;
-    font-family: 'Manrope', sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Geist', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    font-variant-numeric: tabular-nums;
   }
 
-  h1 {
-    font-family: 'Space Grotesk', sans-serif;
-    letter-spacing: -0.02em;
-    line-height: 1.1;
-    font-weight: 700;
+  /* Numbers are data: always tabular, never proportional. */
+  input,
+  button,
+  textarea {
+    font-family: inherit;
   }
 }
 
 @layer utilities {
-  .font-display {
-    font-family: 'Space Grotesk', sans-serif;
-    letter-spacing: -0.02em;
-    line-height: 1.1;
-    font-weight: 600;
+  /* Italian as shown by the app. Never for input, never below 17px. */
+  .font-italian {
+    font-family: 'Newsreader', Georgia, serif;
+    font-style: italic;
+    letter-spacing: -0.01em;
   }
+
 }
 
-@layer utilities {
-  .gradient-primary {
-    background: var(--gradient-primary);
-  }
-  .gradient-accent {
-    background: var(--gradient-accent);
-  }
-  .gradient-streak {
-    background: var(--gradient-streak);
-  }
-  .gradient-card {
-    background: var(--gradient-card);
-  }
-  .glass-card {
-    @apply bg-card/80 backdrop-blur-xl border border-border/50;
-  }
-  .flame-active {
-    color: hsl(var(--streak));
-    fill: hsl(var(--streak));
-    filter: drop-shadow(0 0 6px hsl(var(--streak) / 0.65)) drop-shadow(0 0 12px hsl(var(--streak) / 0.35));
-  }
+/* Room for the iOS status bar; the app is one vertical scroll with nothing fixed. */
+.screen-safe-top {
+  padding-top: calc(20px + env(safe-area-inset-top));
+}
+.screen-safe-bottom {
+  padding-bottom: calc(40px + env(safe-area-inset-bottom));
 }

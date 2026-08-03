@@ -119,10 +119,10 @@ export default function Profile() {
   };
 
   return (
-    <div className="space-y-6 animate-slide-up max-w-lg mx-auto">
+    <div className="space-y-6 max-w-lg mx-auto">
       <div className="text-center">
         <div className="relative inline-block group">
-          <div className="h-24 w-24 rounded-full gradient-primary mx-auto flex items-center justify-center overflow-hidden">
+          <div className="h-24 w-24 rounded-full bg-active mx-auto flex items-center justify-center overflow-hidden">
             {avatarUrl ? (
               <img src={avatarUrl} alt="Profielfoto" className="h-full w-full object-cover" />
             ) : (
@@ -200,7 +200,7 @@ export default function Profile() {
         <p className="text-sm text-muted-foreground mt-1">{email}</p>
       </div>
 
-      <div className="glass-card rounded-xl p-5">
+      <div className="bg-card rounded-xl p-5">
         <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
           <Target className="h-4 w-4 text-accent" /> Dagelijks Doel
         </h3>
@@ -211,7 +211,7 @@ export default function Profile() {
               onClick={() => updateStats({ dailyGoal: goal })}
               className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all ${
                 stats.dailyGoal === goal
-                  ? 'gradient-primary text-primary-foreground'
+                  ? 'bg-active text-primary-foreground'
                   : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
               }`}
             >
@@ -222,7 +222,7 @@ export default function Profile() {
         <p className="text-xs text-muted-foreground mt-2">woorden per dag</p>
       </div>
 
-      <div className="glass-card rounded-xl p-5">
+      <div className="bg-card rounded-xl p-5">
         <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
           <BookOpen className="h-4 w-4 text-primary" /> Overzicht
         </h3>
@@ -233,11 +233,11 @@ export default function Profile() {
           </div>
           <div className="flex justify-between">
             <span className="text-sm text-muted-foreground">Stabiele woorden</span>
-            <span className="text-sm font-medium text-success">{words.filter(w => w.status === 'stable').length}</span>
+            <span className="text-sm font-medium text-active">{words.filter(w => w.status === 'stable').length}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-sm text-muted-foreground">Langste streak</span>
-            <span className="text-sm font-medium text-streak">{stats.longestStreak} dagen</span>
+            <span className="text-sm font-medium text-active">{stats.longestStreak} dagen</span>
           </div>
           <div className="flex justify-between">
             <span className="text-sm text-muted-foreground">Totaal sessies</span>

@@ -1,87 +1,59 @@
-import { useEffect } from 'react';
 import { Word } from '@/types/word';
-import { formatTranslations, formatTranslationsClean } from '@/lib/translation-utils';
-import AnnotationTags from './AnnotationTags';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { stripAnnotations } from '@/lib/translation-utils';
+import { ItalianText, TextAction } from '@/components/vocale/Primitives';
+import PromptCard from './PromptCard';
 
 interface IntroCardProps {
-  word: Word;
-  options: string[];
+  word:     Word;
+  options:  string[];
   selected: string | null;
+  correct:  string;
   onSelect: (option: string) => void;
+  onEdit:   () => void;
 }
 
-export default function IntroCard({ word, options, selected, onSelect }: IntroCardProps) {
-  const isMobile = useIsMobile();
-
-  useEffect(() => {
-    if (isMobile || selected !== null || options.length === 0) return;
-    const handler = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const num = parseInt(e.key, 10);
-      let idx = -1;
-      if (!isNaN(num) && num >= 1 && num <= 9) {
-        idx = num - 1;
-      } else if (e.code && e.code.startsWith('Numpad')) {
-        const n = parseInt(e.code.replace('Numpad', ''), 10);
-        if (!isNaN(n) && n >= 1 && n <= 9) idx = n - 1;
-      }
-      if (idx >= 0 && idx < options.length) {
-        e.preventDefault();
-        onSelect(options[idx]);
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [isMobile, selected, options, onSelect]);
-
+/** Meerkeuze — uitsluitend een kennismakingsvorm. Daarna wordt dit woord getypt. */
+export default function IntroCard({
+  word, options, selected, correct, onSelect, onEdit,
+}: IntroCardProps) {
   return (
-    <div className="space-y-6">
-      <div className="glass-card rounded-2xl p-8 text-center">
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-          Nieuw woord
-        </span>
-        <h2 className="text-4xl font-bold text-foreground mt-3">{word.original}</h2>
-        {selected !== null && (
-          <div className="mt-3">
-            <p className="text-lg text-muted-foreground">{formatTranslationsClean(word.translation)}</p>
-            <AnnotationTags text={word.translation} />
-          </div>
-        )}
+    <>
+      <PromptCard label="nieuw woord">
+        <ItalianText className="text-[38px] font-medium leading-[1.1]">
+          {stripAnnotations(word.original)}
+        </ItalianText>
+      </PromptCard>
+
+      <div className="mb-[10px] mt-[22px] text-[15px] text-ink-weak">Wat betekent dit woord?</div>
+
+      <div className="flex flex-col gap-[9px]">
+        {options.map(option => {
+          const chosen = selected === option;
+          const isRight = option === correct;
+
+          // Na een keuze kleurt alleen wat betekenis draagt: het juiste antwoord
+          // goud, jouw misser tangerine. De rest blijft gewoon papier.
+          let tone = 'bg-card text-ink';
+          if (selected !== null && isRight)         tone = 'bg-active text-ink';
+          else if (selected !== null && chosen)     tone = 'bg-lapsed text-white';
+          else if (selected !== null)               tone = 'bg-card text-ink-weak';
+
+          return (
+            <button
+              key={option}
+              disabled={selected !== null}
+              onClick={() => onSelect(option)}
+              className={`rounded-card px-5 py-[17px] text-left text-[17px] font-medium transition-colors duration-[120ms] ${tone}`}
+            >
+              {option}
+            </button>
+          );
+        })}
       </div>
 
-      <div>
-        <p className="text-sm text-muted-foreground text-center mb-3">Wat betekent dit woord?</p>
-        <div className="grid grid-cols-1 gap-2.5">
-          {options.map((opt, i) => {
-            const isThis = selected === opt;
-            const isRight = opt === formatTranslations(word.translation).replace(/\s*\([^)]+\)/g, '').trim();
-            let style = 'bg-card border-border hover:border-primary/40';
-            if (selected !== null) {
-              if (isRight) style = 'bg-success/10 border-success/50 text-success';
-              else if (isThis && !isRight) style = 'bg-destructive/10 border-destructive/50 text-destructive';
-              else style = 'bg-card border-border opacity-50';
-            }
-            return (
-              <button
-                key={i}
-                onClick={() => onSelect(opt)}
-                disabled={selected !== null}
-                className={`rounded-xl border p-4 text-left text-sm font-medium transition-all flex items-center gap-3 ${style}`}
-              >
-                {!isMobile && (
-                  <span className="flex-shrink-0 inline-flex items-center justify-center h-6 w-6 rounded-md bg-secondary text-muted-foreground text-xs font-mono">
-                    {i + 1}
-                  </span>
-                )}
-                <span className="flex-1">{opt}</span>
-              </button>
-            );
-          })}
-        </div>
+      <div className="mt-[22px] text-center">
+        <TextAction onClick={onEdit}>woord aanpassen</TextAction>
       </div>
-    </div>
+    </>
   );
 }

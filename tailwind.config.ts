@@ -1,5 +1,19 @@
 import type { Config } from "tailwindcss";
 
+/**
+ * Vocale palette. Four colours plus one derived grey; nothing decorative.
+ * Steel is a fill colour only — as text on paper it is ~2.4:1 and fails AA,
+ * so secondary text uses ink-weak instead.
+ */
+const paper = "#EBE9E9";
+const sheet = "#FFFFFF";
+const ink = "#011936";
+const inkWeak = "#55637A";
+const steel = "#8B9EB7";
+const active = "#D19C1D";
+const lapsed = "#E3170A";
+const hairline = "rgba(139,158,183,0.45)";
+
 export default {
   darkMode: ["class"],
   content: ["./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
@@ -14,61 +28,44 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ["Manrope", "sans-serif"],
-        display: ["Space Grotesk", "sans-serif"],
+        sans: ["Geist", "system-ui", "sans-serif"],
+        mono: ["Geist Mono", "ui-monospace", "monospace"],
+        italian: ["Newsreader", "Georgia", "serif"],
       },
       colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
-        primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+        paper,
+        ink: {
+          DEFAULT: ink,
+          weak: inkWeak,
         },
-        secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
-        },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
-        },
-        muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
-        },
-        accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
-        },
-        popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
-        },
-        card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
-        },
-        streak: "hsl(var(--streak))",
-        success: "hsl(var(--success))",
-        warning: "hsl(var(--warning))",
-        sidebar: {
-          DEFAULT: "hsl(var(--sidebar-background))",
-          foreground: "hsl(var(--sidebar-foreground))",
-          primary: "hsl(var(--sidebar-primary))",
-          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
-          accent: "hsl(var(--sidebar-accent))",
-          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
-          border: "hsl(var(--sidebar-border))",
-          ring: "hsl(var(--sidebar-ring))",
-        },
+        steel,
+        active,
+        lapsed,
+        /** An anchored word has become part of your language, so it takes the colour of text. */
+        anchored: ink,
+
+        // Semantic aliases used by the remaining shadcn primitives.
+        background: paper,
+        foreground: ink,
+        border: hairline,
+        input: hairline,
+        ring: active,
+        primary: { DEFAULT: active, foreground: ink },
+        secondary: { DEFAULT: paper, foreground: ink },
+        destructive: { DEFAULT: lapsed, foreground: sheet },
+        muted: { DEFAULT: paper, foreground: inkWeak },
+        accent: { DEFAULT: paper, foreground: ink },
+        popover: { DEFAULT: sheet, foreground: ink },
+        card: { DEFAULT: sheet, foreground: ink },
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        // The entire shape vocabulary: 22 for surfaces, 12 for keys, pill for buttons, 4 for bars.
+        card: "22px",
+        key: "12px",
+        bar: "4px",
+        lg: "22px",
+        md: "12px",
+        sm: "4px",
       },
       keyframes: {
         "accordion-down": {
@@ -79,30 +76,10 @@ export default {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
-        "flip-in": {
-          "0%": { transform: "rotateY(90deg)", opacity: "0" },
-          "100%": { transform: "rotateY(0deg)", opacity: "1" },
-        },
-        "slide-up": {
-          "0%": { transform: "translateY(10px)", opacity: "0" },
-          "100%": { transform: "translateY(0)", opacity: "1" },
-        },
-        "pulse-glow": {
-          "0%, 100%": { boxShadow: "0 0 20px hsl(265 80% 60% / 0.3)" },
-          "50%": { boxShadow: "0 0 40px hsl(265 80% 60% / 0.5)" },
-        },
-        "streak-flame": {
-          "0%, 100%": { transform: "scale(1)" },
-          "50%": { transform: "scale(1.15)" },
-        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "flip-in": "flip-in 0.4s ease-out",
-        "slide-up": "slide-up 0.3s ease-out",
-        "pulse-glow": "pulse-glow 2s ease-in-out infinite",
-        "streak-flame": "streak-flame 1s ease-in-out infinite",
       },
     },
   },

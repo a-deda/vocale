@@ -24,6 +24,7 @@ interface Builder extends PromiseLike<Result> {
   delete(): Builder;
   eq(column: string, value: unknown): Builder;
   order(): Builder;
+  limit(n: number): Builder;
   single(): Builder;
   maybeSingle(): Builder;
 }
@@ -42,6 +43,7 @@ const H = vi.hoisted(() => {
       delete:      () => { call.op = 'delete'; return b; },
       eq:          (k, v) => { call.filters[k] = v; return b; },
       order:       () => b,
+      limit:       () => b,
       single:      () => { call.single = true; return b; },
       maybeSingle: () => { call.single = true; return b; },
       then: (resolve, reject) => {
