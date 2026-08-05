@@ -59,7 +59,10 @@ export interface FsrsReviewLog {
   dAfter:       number;
   intervalDays: number;
   reviewedAt:   string;
-  /** Tijd tot de eerste toets, in ms. Null voor modi zonder invoer. */
+  /**
+   * Tijd van kaart tot bevestiging, in ms — inclusief de tijd die het typen
+   * kostte. Null voor modi zonder invoer en bij overslaan.
+   */
   responseMs:   number | null;
 }
 
@@ -203,6 +206,25 @@ export function adjustGradeBySpeed(
   if (mode === 'mc' || mode === 'self_assess') return grade;
   const threshold = 4000 + wordLength * 300; // 4s + 300ms/teken
   return responseTimeMs <= threshold ? GRADE.EASY : grade;
+}
+
+/**
+ * De beoordeling zoals hij daadwerkelijk wordt opgeslagen, snelheid inbegrepen.
+ *
+ * Eén ingang voor zowel het opslaan als het tonen van het interval. Werden die
+ * los samengesteld, dan kon het getoonde `+N d` afwijken van wat er gepland werd:
+ * de ene plek paste de snelheidsupgrade toe en de andere niet.
+ *
+ * Zonder invoertijd (`null`, bij overslaan en meerkeuze) is er geen upgrade.
+ */
+export function gradeForAnswer(
+  mode:        FsrsMode,
+  matchResult: 'correct' | 'almost' | 'wrong',
+  responseMs:  number | null,
+  wordLength:  number,
+): FsrsGrade {
+  const base = determineGrade(mode, matchResult);
+  return adjustGradeBySpeed(base, mode, responseMs ?? Infinity, wordLength);
 }
 
 // ─── SESSIE OPBOUWEN ─────────────────────────────────────────────────────────

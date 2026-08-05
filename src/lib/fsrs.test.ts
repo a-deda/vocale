@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSession, FSRS_MODES } from '@/lib/fsrs';
+import { buildSession, FSRS_MODES, GRADE, gradeForAnswer } from '@/lib/fsrs';
 import type { FsrsMode, FsrsState } from '@/lib/fsrs';
 
 const TODAY = '2026-06-15';
@@ -142,5 +142,48 @@ describe('buildSession — invariant over willekeurige mix', () => {
     const items = buildSession({ a: { self_assess: state(TODAY) } }, TODAY, 20);
     expect(items).toHaveLength(1);
     expect(items[0].mode).toBe('typed_nl_it');
+  });
+});
+
+describe('gradeForAnswer — snelheid verhoogt alleen een goed antwoord', () => {
+  // 'parlare' telt 7 tekens, dus de drempel ligt op 4000 + 7 × 300 = 6100 ms.
+  const WORD = 'parlare'.length;
+
+  it('goed en binnen de drempel telt als moeiteloos', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', 3000, WORD)).toBe(GRADE.EASY);
+  });
+
+  it('goed maar over de drempel blijft gewoon goed', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', 9000, WORD)).toBe(GRADE.GOOD);
+  });
+
+  it('precies op de drempel telt nog als moeiteloos, één milliseconde later niet', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', 6100, WORD)).toBe(GRADE.EASY);
+    expect(gradeForAnswer('typed_nl_it', 'correct', 6101, WORD)).toBe(GRADE.GOOD);
+  });
+
+  it('een langer woord krijgt een ruimere drempel', () => {
+    const long = 'la disoccupazione'.length; // 4000 + 17 × 300 = 9100 ms
+    expect(gradeForAnswer('typed_nl_it', 'correct', 9000, long)).toBe(GRADE.EASY);
+    expect(gradeForAnswer('typed_nl_it', 'correct', 9000, WORD)).toBe(GRADE.GOOD);
+  });
+
+  it('snelheid redt een bijna- of fout antwoord niet', () => {
+    expect(gradeForAnswer('typed_nl_it', 'almost', 100, WORD)).toBe(GRADE.HARD);
+    expect(gradeForAnswer('typed_nl_it', 'wrong', 100, WORD)).toBe(GRADE.FORGOT);
+  });
+
+  it('zonder gemeten tijd is er geen verhoging', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', null, WORD)).toBe(GRADE.GOOD);
+  });
+
+  it('meerkeuze wordt nooit verhoogd, hoe snel ook', () => {
+    expect(gradeForAnswer('mc', 'correct', 10, WORD)).toBe(GRADE.GOOD);
+    expect(gradeForAnswer('mc', 'wrong', 10, WORD)).toBe(GRADE.FORGOT);
+  });
+
+  it('luisteren volgt dezelfde snelheidsregel als typen', () => {
+    expect(gradeForAnswer('listen_type', 'correct', 3000, WORD)).toBe(GRADE.EASY);
+    expect(gradeForAnswer('listen_type', 'correct', 9000, WORD)).toBe(GRADE.GOOD);
   });
 });

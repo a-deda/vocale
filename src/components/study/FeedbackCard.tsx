@@ -14,7 +14,7 @@ interface FeedbackCardProps {
   input:       string;
   mode:        CorrectableMode;
   result:      'correct' | 'almost' | 'wrong';
-  /** Tijd tot de eerste toets; null bij overslaan en bij meerkeuze. */
+  /** Tijd van kaart tot bevestiging; null bij overslaan en bij meerkeuze. */
   responseMs:  number | null;
   /** Het interval in dagen dat deze beoordeling oplevert. */
   intervalDays: number;

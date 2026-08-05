@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/components/StoreProvider';
 import {
-  ANCHOR_DAYS, GRADE, FSRS_MODES, adjustGradeBySpeed, buildSession,
-  determineGrade, emptyFsrsState, previewInterval, reviewCard,
+  ANCHOR_DAYS, GRADE, FSRS_MODES, buildSession,
+  emptyFsrsState, gradeForAnswer, previewInterval, reviewCard,
 } from '@/lib/fsrs';
 import type { FsrsGrade, FsrsMode, FsrsState, QueueItem } from '@/lib/fsrs';
 import { fuzzyMatch, fuzzyMatchWithAlternatives, generateMCOptions } from '@/lib/srs';
@@ -13,6 +13,7 @@ import { buildOverview, countStates } from '@/lib/vocabulary';
 import { localDateKey } from '@/lib/store';
 import { Word } from '@/types/word';
 import { Screen, ScreenHeader, SessionHeader } from '@/components/vocale/Primitives';
+import type { FlashLevel } from '@/components/vocale/Input';
 import ProductionCard from '@/components/study/ProductionCard';
 import ListeningCard from '@/components/study/ListeningCard';
 import IntroCard from '@/components/study/IntroCard';
@@ -26,8 +27,11 @@ type QueuedWord  = QueueItem & { word: Word };
 
 /** Minimaal aantal kaarten tussen een kennismaking en de getypte herhaling. */
 const MIN_SPACING = 3;
-/** De goudflits bij een goed antwoord; daarna komt de volgende kaart. */
-const FLASH_MS = 320;
+/**
+ * Hoe lang de goudflits blijft staan voordat de volgende kaart komt.
+ * Een snel antwoord krijgt iets meer tijd, omdat het geen aanloop heeft.
+ */
+const FLASH_MS: Record<'good' | 'easy', number> = { good: 320, easy: 420 };
 
 export default function Study() {
   const navigate = useNavigate();
@@ -64,7 +68,7 @@ export default function Study() {
   // ─── UI-state ───────────────────────────────────────────────────────────
   const [typedAnswer, setTypedAnswer] = useState('');
   const [selectedMC, setSelectedMC]   = useState<string | null>(null);
-  const [flash, setFlash]             = useState(false);
+  const [flash, setFlash]             = useState<FlashLevel>(null);
   const [editOpen, setEditOpen]       = useState(false);
 
   /** Gepauzeerd feedbackscherm: de beoordeling wordt pas bij 'Verder' weggeschreven. */
@@ -224,7 +228,7 @@ export default function Study() {
     setSelectedMC(null);
     setPending(null);
     setCorrected(false);
-    setFlash(false);
+    setFlash(null);
 
     const idx  = currentIndexRef.current;
     let   q    = queueRef.current;
@@ -279,11 +283,9 @@ export default function Study() {
     item: QueuedWord, usedMode: FsrsMode, kind: 'mc' | 'typed',
     result: MatchResult, responseMs: number | null,
   ) => {
-    const grade = kind === 'mc'
-      ? determineGrade('mc', result)
-      : adjustGradeBySpeed(
-          determineGrade(usedMode, result), usedMode, responseMs ?? Infinity, item.word.original.length,
-        );
+    const grade = gradeForAnswer(
+      kind === 'mc' ? 'mc' : usedMode, result, responseMs, item.word.original.length,
+    );
 
     if (result === 'almost') tallyRef.current.almost++;
     if (responseMs !== null) tallyRef.current.responseTimes.push(responseMs);
@@ -323,8 +325,11 @@ export default function Study() {
 
     if (result === 'correct') {
       // Geen feedbackscherm: het veld kleurt goud en de volgende kaart komt.
-      setFlash(true);
-      setTimeout(() => commit(currentItem, usedMode, 'typed', result, responseMs), FLASH_MS);
+      // Welk goud, zegt de beoordeling die zo wordt opgeslagen.
+      const grade = gradeForAnswer(usedMode, result, responseMs, currentItem.word.original.length);
+      const level: 'good' | 'easy' = grade === GRADE.EASY ? 'easy' : 'good';
+      setFlash(level);
+      setTimeout(() => commit(currentItem, usedMode, 'typed', result, responseMs), FLASH_MS[level]);
       return;
     }
     pause(currentItem, usedMode, 'typed', typedAnswer, result, responseMs);
@@ -465,9 +470,10 @@ export default function Study() {
 
   if (pending) {
     const existing = fsrsStates[pending.item.cardId]?.[pending.usedMode] ?? emptyFsrsState();
-    const grade = pending.kind === 'mc'
-      ? determineGrade('mc', pending.result)
-      : determineGrade(pending.usedMode, pending.result);
+    const grade = gradeForAnswer(
+      pending.kind === 'mc' ? 'mc' : pending.usedMode,
+      pending.result, pending.responseMs, pending.item.word.original.length,
+    );
 
     return (
       <Screen>

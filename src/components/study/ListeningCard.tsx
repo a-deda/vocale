@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { Word } from '@/types/word';
 import { AccentRow, TypedInput } from '@/components/vocale/Input';
+import type { FlashLevel } from '@/components/vocale/Input';
 import { Button, TextAction } from '@/components/vocale/Primitives';
 import PromptCard from './PromptCard';
 
@@ -11,7 +12,7 @@ interface ListeningCardProps {
   onSubmit:     () => void;
   onSkip:       () => void;
   onMute:       () => void;
-  flash:        boolean;
+  flash:        FlashLevel;
 }
 
 function speak(text: string) {

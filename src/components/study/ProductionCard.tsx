@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Word } from '@/types/word';
 import { formatTranslationsClean, stripAnnotations } from '@/lib/translation-utils';
 import { AccentRow, TypedInput } from '@/components/vocale/Input';
+import type { FlashLevel } from '@/components/vocale/Input';
 import { Button, ItalianText, TextAction } from '@/components/vocale/Primitives';
 import PromptCard, { requiresArticle } from './PromptCard';
 
@@ -15,7 +16,7 @@ interface ProductionCardProps {
   onSkip:       () => void;
   onEdit:       () => void;
   /** Laat het veld goud oplichten: het enige signaal bij een goed antwoord. */
-  flash:        boolean;
+  flash:        FlashLevel;
 }
 
 export default function ProductionCard({

@@ -22,9 +22,23 @@ export function AccentRow({ onInsert }: { onInsert: (char: string) => void }) {
   );
 }
 
+/**
+ * De twee standen van de goudflits — het enige feedbackmoment bij goed.
+ * `good` licht op in goud, `easy` in het diepere goud van een ingedrukte knop.
+ */
+export type FlashLevel = 'good' | 'easy' | null;
+
+const FLASH_BG: Record<'good' | 'easy', string> = {
+  good: 'bg-active',
+  easy: 'bg-[var(--action-press)]',
+};
+
 interface TypedInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  /** Laat het veld 200 ms goud oplichten — het enige feedbackmoment bij goed. */
-  flash?: boolean;
+  /**
+   * Laat het veld oplichten. `good` loopt zacht op, `easy` slaat direct aan:
+   * de vorm van de flits spiegelt hoe snel het antwoord kwam.
+   */
+  flash?: FlashLevel;
 }
 
 /**
@@ -32,7 +46,7 @@ interface TypedInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
  * de serif is voorbehouden aan Italiaans zoals de app het toont.
  */
 export const TypedInput = forwardRef<HTMLInputElement, TypedInputProps>(
-  ({ flash = false, className = '', ...props }, ref) => (
+  ({ flash = null, className = '', ...props }, ref) => (
     <input
       ref={ref}
       {...props}
@@ -42,11 +56,17 @@ export const TypedInput = forwardRef<HTMLInputElement, TypedInputProps>(
       spellCheck={false}
       className={
         `mt-4 h-16 w-full rounded-card px-5 text-[26px] font-medium tracking-[-0.01em] ` +
-        `text-ink caret-[#D19C1D] outline-none placeholder:text-steel ` +
+        `text-ink outline-none placeholder:text-steel ` +
         `focus:shadow-[inset_0_0_0_2px_#D19C1D] ` +
-        `${flash ? 'bg-active' : 'bg-card'} ${className}`
+        // De caret is zelf goud en zou tijdens de flits in het vlak verdwijnen.
+        `${flash ? `${FLASH_BG[flash]} caret-transparent` : 'bg-card caret-[#D19C1D]'} ${className}`
       }
-      style={{ transition: flash ? 'background-color 200ms cubic-bezier(0.2,0,0.2,1)' : undefined }}
+      // Alleen `good` loopt op; `easy` is er meteen, en dat ís het signaal.
+      style={{
+        transition: flash === 'good'
+          ? 'background-color var(--dur-flash) var(--ease-standard)'
+          : undefined,
+      }}
     />
   ),
 );

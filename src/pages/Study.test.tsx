@@ -237,11 +237,78 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
       expect(screen.queryByText('Verder')).not.toBeInTheDocument();
       expect(screen.queryByText('sessie afgerond')).not.toBeInTheDocument();
 
-      act(() => { vi.advanceTimersByTime(400); });
+      act(() => { vi.advanceTimersByTime(500); });
       expect(screen.getByText('sessie afgerond')).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  /**
+   * De flits is het enige signaal bij een goed antwoord, dus hij moet laten
+   * zien wélke beoordeling eraan hangt. 'parlare' telt 7 tekens: de drempel
+   * voor een moeiteloos antwoord ligt op 4000 + 7 × 300 = 6100 ms.
+   */
+  describe('de flits toont de beoordeling die wordt opgeslagen', () => {
+    /** Beantwoordt goed na `elapsed` ms en geeft de klassen van het veld terug. */
+    function answerAfter(elapsed: number): string {
+      renderStudy();
+      act(() => { vi.advanceTimersByTime(elapsed); });
+
+      const input = screen.getByPlaceholderText(IT_INPUT);
+      fireEvent.change(input, { target: { value: 'parlare' } });
+      fireEvent.click(screen.getByText('Controleer'));
+      return input.className;
+    }
+
+    it('binnen de drempel licht het veld op in het diepere goud, zonder aanloop', () => {
+      vi.useFakeTimers();
+      try {
+        const classes = answerAfter(3000);
+        expect(classes).toContain('bg-[var(--action-press)]');
+        expect(classes).not.toContain('bg-active');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('over de drempel licht het veld op in gewoon goud', () => {
+      vi.useFakeTimers();
+      try {
+        const classes = answerAfter(9000);
+        expect(classes).toContain('bg-active');
+        expect(classes).not.toContain('bg-[var(--action-press)]');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('de opgeslagen beoordeling volgt dezelfde grens als de kleur', async () => {
+      vi.useFakeTimers();
+      try {
+        answerAfter(3000);
+        // De flits afwachten én de opslag, die achter twee awaits zit.
+        await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+        expect(H.state.addReviewLog).toHaveBeenCalledWith(
+          expect.objectContaining({ grade: 4 }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('een traag antwoord slaat gewoon goed op, niet moeiteloos', async () => {
+      vi.useFakeTimers();
+      try {
+        answerAfter(9000);
+        await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+        expect(H.state.addReviewLog).toHaveBeenCalledWith(
+          expect.objectContaining({ grade: 3 }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
 
@@ -262,7 +329,7 @@ describe('Study – elke les wordt opgeslagen', () => {
 
       fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
       fireEvent.click(screen.getByText('Controleer'));
-      act(() => { vi.advanceTimersByTime(400); });
+      act(() => { vi.advanceTimersByTime(500); });
 
       // Nog midden in de les: nog niets weggeschreven.
       expect(H.state.addSession).not.toHaveBeenCalled();
@@ -286,7 +353,7 @@ describe('Study – elke les wordt opgeslagen', () => {
 
       fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
       fireEvent.click(screen.getByText('Controleer'));
-      act(() => { vi.advanceTimersByTime(400); });
+      act(() => { vi.advanceTimersByTime(500); });
 
       expect(screen.getByText('sessie afgerond')).toBeInTheDocument();
       expect(H.state.addSession).toHaveBeenCalledTimes(1);
