@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/components/StoreProvider';
 import {
   ANCHOR_DAYS, GRADE, FSRS_MODES, buildSession,
-  emptyFsrsState, gradeForAnswer, previewInterval, reviewCard,
+  emptyFsrsState, gradeForAnswer, intervalText, previewInterval, reviewCard,
 } from '@/lib/fsrs';
 import type { FsrsGrade, FsrsMode, FsrsState, QueueItem } from '@/lib/fsrs';
 import { fuzzyMatch, fuzzyMatchWithAlternatives, generateMCOptions } from '@/lib/srs';
@@ -13,7 +13,6 @@ import { buildOverview, countStates } from '@/lib/vocabulary';
 import { localDateKey } from '@/lib/store';
 import { Word } from '@/types/word';
 import { Screen, ScreenHeader, SessionHeader } from '@/components/vocale/Primitives';
-import type { FlashLevel } from '@/components/vocale/Input';
 import ProductionCard from '@/components/study/ProductionCard';
 import ListeningCard from '@/components/study/ListeningCard';
 import IntroCard from '@/components/study/IntroCard';
@@ -28,10 +27,10 @@ type QueuedWord  = QueueItem & { word: Word };
 /** Minimaal aantal kaarten tussen een kennismaking en de getypte herhaling. */
 const MIN_SPACING = 3;
 /**
- * Hoe lang de goudflits blijft staan voordat de volgende kaart komt.
- * Een snel antwoord krijgt iets meer tijd, omdat het geen aanloop heeft.
+ * Hoe lang een goed antwoord blijft staan. Ruimer dan de kale flits vroeg,
+ * want het briefje met het volgende interval moet leesbaar zijn.
  */
-const FLASH_MS: Record<'good' | 'easy', number> = { good: 320, easy: 420 };
+const FLASH_MS = 900;
 
 export default function Study() {
   const navigate = useNavigate();
@@ -68,7 +67,9 @@ export default function Study() {
   // ─── UI-state ───────────────────────────────────────────────────────────
   const [typedAnswer, setTypedAnswer] = useState('');
   const [selectedMC, setSelectedMC]   = useState<string | null>(null);
-  const [flash, setFlash]             = useState<FlashLevel>(null);
+  const [flash, setFlash]             = useState(false);
+  /** "over 3 weken" — staat op het veld zolang de flits duurt. */
+  const [intervalNote, setIntervalNote] = useState<string | null>(null);
   const [editOpen, setEditOpen]       = useState(false);
 
   /** Gepauzeerd feedbackscherm: de beoordeling wordt pas bij 'Verder' weggeschreven. */
@@ -157,7 +158,7 @@ export default function Study() {
   // ─── Wegschrijven ───────────────────────────────────────────────────────
 
   const persistReview = useCallback(async (
-    item: QueuedWord, grade: FsrsGrade, usedMode: FsrsMode, responseMs: number | null,
+    item: QueuedWord, grade: number, usedMode: FsrsMode, responseMs: number | null,
   ) => {
     const existing = fsrsStates[item.cardId]?.[usedMode] ?? emptyFsrsState();
     const { newState, logPartial } = reviewCard(existing, grade, today);
@@ -228,7 +229,8 @@ export default function Study() {
     setSelectedMC(null);
     setPending(null);
     setCorrected(false);
-    setFlash(null);
+    setFlash(false);
+    setIntervalNote(null);
 
     const idx  = currentIndexRef.current;
     let   q    = queueRef.current;
@@ -324,16 +326,17 @@ export default function Study() {
     const responseMs = Date.now() - cardStartTimeRef.current;
 
     if (result === 'correct') {
-      // Geen feedbackscherm: het veld kleurt goud en de volgende kaart komt.
-      // Welk goud, zegt de beoordeling die zo wordt opgeslagen.
-      const grade = gradeForAnswer(usedMode, result, responseMs, currentItem.word.original.length);
-      const level: 'good' | 'easy' = grade === GRADE.EASY ? 'easy' : 'good';
-      setFlash(level);
-      setTimeout(() => commit(currentItem, usedMode, 'typed', result, responseMs), FLASH_MS[level]);
+      // Geen feedbackscherm: het veld kleurt goud en er komt een briefje op met
+      // wanneer dit woord terugkomt — hoe vlotter je was, hoe verder weg.
+      const grade    = gradeForAnswer(usedMode, result, responseMs, currentItem.word.original.length);
+      const existing = fsrsStates[currentItem.cardId]?.[usedMode] ?? emptyFsrsState();
+      setFlash(true);
+      setIntervalNote(`over ${intervalText(previewInterval(existing, grade, today))}`);
+      setTimeout(() => commit(currentItem, usedMode, 'typed', result, responseMs), FLASH_MS);
       return;
     }
     pause(currentItem, usedMode, 'typed', typedAnswer, result, responseMs);
-  }, [currentItem, typedAnswer, effectiveMode, evaluateTyped, commit, pause]);
+  }, [currentItem, typedAnswer, effectiveMode, evaluateTyped, commit, pause, fsrsStates, today]);
 
   const handleSkip = useCallback(() => {
     if (!currentItem) return;
@@ -527,6 +530,7 @@ export default function Study() {
           onSkip={handleSkip}
           onEdit={() => setEditOpen(true)}
           flash={flash}
+          intervalNote={intervalNote}
         />
       )}
     </Screen>

@@ -22,23 +22,12 @@ export function AccentRow({ onInsert }: { onInsert: (char: string) => void }) {
   );
 }
 
-/**
- * De twee standen van de goudflits — het enige feedbackmoment bij goed.
- * `good` licht op in goud, `easy` in het diepere goud van een ingedrukte knop.
- */
-export type FlashLevel = 'good' | 'easy' | null;
-
-const FLASH_BG: Record<'good' | 'easy', string> = {
-  good: 'bg-active',
-  easy: 'bg-[var(--action-press)]',
-};
-
 interface TypedInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   /**
-   * Laat het veld oplichten. `good` loopt zacht op, `easy` slaat direct aan:
-   * de vorm van de flits spiegelt hoe snel het antwoord kwam.
+   * Laat het veld goud oplichten bij een goed antwoord. Wélke beoordeling het
+   * werd, zegt het briefje erop; de flits zegt alleen dát het goed was.
    */
-  flash?: FlashLevel;
+  flash?: boolean;
 }
 
 /**
@@ -46,7 +35,7 @@ interface TypedInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
  * de serif is voorbehouden aan Italiaans zoals de app het toont.
  */
 export const TypedInput = forwardRef<HTMLInputElement, TypedInputProps>(
-  ({ flash = null, className = '', ...props }, ref) => (
+  ({ flash = false, className = '', ...props }, ref) => (
     <input
       ref={ref}
       {...props}
@@ -59,13 +48,10 @@ export const TypedInput = forwardRef<HTMLInputElement, TypedInputProps>(
         `text-ink outline-none placeholder:text-steel ` +
         `focus:shadow-[inset_0_0_0_2px_#D19C1D] ` +
         // De caret is zelf goud en zou tijdens de flits in het vlak verdwijnen.
-        `${flash ? `${FLASH_BG[flash]} caret-transparent` : 'bg-card caret-[#D19C1D]'} ${className}`
+        `${flash ? 'bg-active caret-transparent' : 'bg-card caret-[#D19C1D]'} ${className}`
       }
-      // Alleen `good` loopt op; `easy` is er meteen, en dat ís het signaal.
       style={{
-        transition: flash === 'good'
-          ? 'background-color var(--dur-flash) var(--ease-standard)'
-          : undefined,
+        transition: flash ? 'background-color var(--dur-flash) var(--ease-standard)' : undefined,
       }}
     />
   ),

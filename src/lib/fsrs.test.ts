@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { buildSession, FSRS_MODES, GRADE, gradeForAnswer } from '@/lib/fsrs';
+import {
+  buildSession, FSRS_MODES, GRADE, gradeForAnswer, initialStability,
+  previewInterval, speedThreshold, updateDifficulty, W,
+} from '@/lib/fsrs';
 import type { FsrsMode, FsrsState } from '@/lib/fsrs';
 
 const TODAY = '2026-06-15';
@@ -145,27 +148,45 @@ describe('buildSession — invariant over willekeurige mix', () => {
   });
 });
 
-describe('gradeForAnswer — snelheid verhoogt alleen een goed antwoord', () => {
-  // 'parlare' telt 7 tekens, dus de drempel ligt op 4000 + 7 × 300 = 6100 ms.
+describe('gradeForAnswer — snelheid schaalt vloeiend tussen goed en moeiteloos', () => {
+  // 'parlare' telt 7 tekens, dus de ijkdrempel ligt op 4000 + 7 x 300 = 6100 ms.
   const WORD = 'parlare'.length;
+  const T    = speedThreshold(WORD);
 
-  it('goed en binnen de drempel telt als moeiteloos', () => {
-    expect(gradeForAnswer('typed_nl_it', 'correct', 3000, WORD)).toBe(GRADE.EASY);
+  it('de uitersten komen exact overeen met de oude hele grades', () => {
+    // Halve drempel of sneller = volledig moeiteloos; anderhalve drempel of
+    // trager = gewoon goed. Deze twee moeten na de overgang naar een continue
+    // schaal nog precies hetzelfde opleveren als voorheen.
+    expect(gradeForAnswer('typed_nl_it', 'correct', 0.5 * T, WORD)).toBe(GRADE.EASY);
+    expect(gradeForAnswer('typed_nl_it', 'correct', 1.5 * T, WORD)).toBe(GRADE.GOOD);
   });
 
-  it('goed maar over de drempel blijft gewoon goed', () => {
-    expect(gradeForAnswer('typed_nl_it', 'correct', 9000, WORD)).toBe(GRADE.GOOD);
+  it('op de ijkdrempel zit je precies halverwege', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', T, WORD)).toBeCloseTo(3.5, 10);
   });
 
-  it('precies op de drempel telt nog als moeiteloos, één milliseconde later niet', () => {
-    expect(gradeForAnswer('typed_nl_it', 'correct', 6100, WORD)).toBe(GRADE.EASY);
-    expect(gradeForAnswer('typed_nl_it', 'correct', 6101, WORD)).toBe(GRADE.GOOD);
+  it('loopt monotoon af naarmate je trager antwoordt', () => {
+    const grades = [0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6]
+      .map(k => gradeForAnswer('typed_nl_it', 'correct', k * T, WORD));
+    for (let i = 1; i < grades.length; i++) {
+      expect(grades[i]).toBeLessThanOrEqual(grades[i - 1]);
+    }
+    expect(grades[0]).toBe(GRADE.EASY);
+    expect(grades[grades.length - 1]).toBe(GRADE.GOOD);
+  });
+
+  it('blijft altijd binnen goed en moeiteloos', () => {
+    for (const ms of [0, 1, 100, 5000, 6100, 20000, 1e9]) {
+      const g = gradeForAnswer('typed_nl_it', 'correct', ms, WORD);
+      expect(g).toBeGreaterThanOrEqual(GRADE.GOOD);
+      expect(g).toBeLessThanOrEqual(GRADE.EASY);
+    }
   });
 
   it('een langer woord krijgt een ruimere drempel', () => {
-    const long = 'la disoccupazione'.length; // 4000 + 17 × 300 = 9100 ms
-    expect(gradeForAnswer('typed_nl_it', 'correct', 9000, long)).toBe(GRADE.EASY);
-    expect(gradeForAnswer('typed_nl_it', 'correct', 9000, WORD)).toBe(GRADE.GOOD);
+    const long = 'la disoccupazione'.length;
+    expect(gradeForAnswer('typed_nl_it', 'correct', 9000, long))
+      .toBeGreaterThan(gradeForAnswer('typed_nl_it', 'correct', 9000, WORD));
   });
 
   it('snelheid redt een bijna- of fout antwoord niet', () => {
@@ -183,7 +204,51 @@ describe('gradeForAnswer — snelheid verhoogt alleen een goed antwoord', () => 
   });
 
   it('luisteren volgt dezelfde snelheidsregel als typen', () => {
-    expect(gradeForAnswer('listen_type', 'correct', 3000, WORD)).toBe(GRADE.EASY);
-    expect(gradeForAnswer('listen_type', 'correct', 9000, WORD)).toBe(GRADE.GOOD);
+    expect(gradeForAnswer('listen_type', 'correct', 0.5 * T, WORD)).toBe(GRADE.EASY);
+    expect(gradeForAnswer('listen_type', 'correct', 1.5 * T, WORD)).toBe(GRADE.GOOD);
+  });
+});
+
+describe('de continue schaal past in FSRS', () => {
+  const MATURE: FsrsState = {
+    stability: 10, difficulty: 5,
+    dueDate: '2026-06-15', lastReviewedAt: '2026-06-05T10:00:00.000Z',
+  };
+
+  it('een hele 3 en een hele 4 geven nog steeds de bekende intervallen', () => {
+    // Deze twee getallen zijn met de hand uit de formules gerekend; ze bewaken
+    // dat de interpolatie de uitersten niet verschoven heeft.
+    expect(previewInterval(MATURE, GRADE.GOOD, TODAY)).toBe(33);
+    expect(previewInterval(MATURE, GRADE.EASY, TODAY)).toBe(88);
+  });
+
+  it('gebroken grades liggen ertussen en lopen monotoon op', () => {
+    const days = [3, 3.25, 3.5, 3.75, 4].map(g => previewInterval(MATURE, g, TODAY));
+    for (let i = 1; i < days.length; i++) {
+      expect(days[i]).toBeGreaterThan(days[i - 1]);
+    }
+    expect(days[0]).toBe(33);
+    expect(days[days.length - 1]).toBe(88);
+  });
+
+  it('een gloednieuw woord krijgt een echte stabiliteit, geen NaN', () => {
+    // initialStability leest W[grade-1]; zonder interpolatie zou W[2.4]
+    // undefined zijn en de kaart met NaN in de database belanden.
+    for (const g of [3, 3.3, 3.5, 3.75, 4]) {
+      const s = initialStability(g);
+      expect(Number.isFinite(s)).toBe(true);
+      expect(s).toBeGreaterThan(0);
+    }
+    expect(initialStability(3)).toBeCloseTo(W[2], 10);
+    expect(initialStability(4)).toBeCloseTo(W[3], 10);
+    expect(initialStability(3.5)).toBeCloseTo((W[2] + W[3]) / 2, 10);
+  });
+
+  it('moeilijkheid blijft bij gebroken grades binnen de grenzen', () => {
+    for (const g of [3, 3.4, 3.9, 4]) {
+      const d = updateDifficulty(5, g);
+      expect(d).toBeGreaterThanOrEqual(1);
+      expect(d).toBeLessThanOrEqual(10);
+    }
   });
 });

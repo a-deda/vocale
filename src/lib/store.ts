@@ -13,7 +13,8 @@ export type FsrsStatesMap = Record<string, Partial<Record<FsrsMode, FsrsState>>>
 
 /** Een gelezen review-log; het overzicht leidt hier houdbaarheid en tempo uit af. */
 export type ReviewLogRow = Pick<
-  FsrsReviewLog, 'cardId' | 'mode' | 'grade' | 'sBefore' | 'sAfter' | 'reviewedAt' | 'responseMs'
+  FsrsReviewLog,
+  'cardId' | 'mode' | 'grade' | 'effectiveGrade' | 'sBefore' | 'sAfter' | 'reviewedAt' | 'responseMs'
 >;
 
 /** Zoveel recente reviews zijn genoeg voor de cijfers op het overzicht. */
@@ -88,6 +89,17 @@ function needsClientIdFallback(error: QueryError | null): boolean {
   return `${error.message ?? ''} ${error.details ?? ''}`.toLowerCase().includes('client_id');
 }
 
+/**
+ * Ontbreekt een kolom nog op de database? Dan meldt PostgREST dat met een
+ * schema-fout. De aanroeper kan dan opnieuw proberen zonder die kolom.
+ */
+function needsColumnFallback(error: QueryError | null, column: string): boolean {
+  if (!error) return false;
+  const code = error.code ?? '';
+  if (code === 'PGRST204' || code === '42703') return true;
+  return `${error.message ?? ''} ${error.details ?? ''}`.toLowerCase().includes(column);
+}
+
 // Map DB row to Word type
 function dbToWord(row: any): Word {
   return {
@@ -155,6 +167,7 @@ function dbToReviewLog(row: any): ReviewLogRow {
     cardId:     row.card_id,
     mode:       row.mode as FsrsMode,
     grade:      row.grade,
+    effectiveGrade: row.effective_grade ?? row.grade,
     sBefore:    row.s_before,
     sAfter:     row.s_after,
     reviewedAt: row.reviewed_at,
@@ -468,13 +481,14 @@ export function useWordStore() {
       cardId:     log.cardId,
       mode:       log.mode,
       grade:      log.grade,
+      effectiveGrade: log.effectiveGrade,
       sBefore:    log.sBefore,
       sAfter:     log.sAfter,
       reviewedAt: log.reviewedAt,
       responseMs: log.responseMs,
     }, ...prev].slice(0, REVIEW_LOG_WINDOW));
 
-    const { error } = await withRetry(() => supabase.from('review_logs').insert({
+    const row = {
       card_id:       log.cardId,
       user_id:       uid,
       mode:          log.mode,
@@ -487,8 +501,19 @@ export function useWordStore() {
       interval_days: log.intervalDays,
       reviewed_at:   log.reviewedAt,
       response_ms:   log.responseMs,
-    }));
-    if (error) console.error('Review log opslaan mislukt:', error.message);
+    };
+
+    const insert = (payload: typeof row & { effective_grade?: number }) =>
+      withRetry(() => supabase.from('review_logs').insert(payload));
+
+    let res = await insert({ ...row, effective_grade: log.effectiveGrade });
+
+    // Staat de kolom nog niet op de database, dan is de afgeronde grade een
+    // bruikbare benadering — beter dan de hele log verliezen.
+    if (res.error && needsColumnFallback(res.error, 'effective_grade')) {
+      res = await insert(row);
+    }
+    if (res.error) console.error('Review log opslaan mislukt:', res.error.message);
   }, []);
 
   /**
