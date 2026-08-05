@@ -17,8 +17,8 @@ interface ProductionCardProps {
   onEdit:       () => void;
   /** Laat het veld goud oplichten: het signaal dat het antwoord goed was. */
   flash:        boolean;
-  /** Wanneer dit woord terugkomt, bijvoorbeeld "over 3 weken". Alleen bij goed. */
-  intervalNote: string | null;
+  /** Wanneer dit woord terugkomt ("+4 wk") plus de kleursterkte. Alleen bij goed. */
+  intervalNote: { text: string; tone: number } | null;
 }
 
 export default function ProductionCard({
@@ -78,7 +78,7 @@ export default function ProductionCard({
             if (hasInput) onSubmit(); else onSkip();
           }}
         />
-        {intervalNote && <IntervalNote text={intervalNote} />}
+        {intervalNote && <IntervalNote text={intervalNote.text} tone={intervalNote.tone} />}
       </div>
 
       {toItalian && <AccentRow onInsert={insertAccent} />}

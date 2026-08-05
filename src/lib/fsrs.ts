@@ -1,5 +1,7 @@
 // FSRS-5 algoritme — zie https://github.com/open-spaced-repetition/fsrs4anki/wiki
 
+import type { InputMedium } from '@/lib/input-medium';
+
 // ─── CONSTANTEN ──────────────────────────────────────────────────────────────
 
 const F = 19 / 81;
@@ -64,6 +66,11 @@ export interface FsrsReviewLog {
    * niet te reproduceren.
    */
   effectiveGrade: number;
+  /**
+   * Waarmee er getypt werd. Het tiktarief per medium is nu geschat; met dit
+   * veld erbij is het achteraf uit de eigen historie te toetsen.
+   */
+  inputMedium:  InputMedium | null;
   intervalDays: number;
   reviewedAt:   string;
   /**
@@ -151,7 +158,7 @@ export function reviewCard(
   /** Mag gebroken zijn tussen goed en moeiteloos; zie `speedFactor`. */
   grade: number,
   today: string // YYYY-MM-DD
-): { newState: FsrsState; logPartial: Omit<FsrsReviewLog, 'cardId' | 'mode' | 'responseMs'> } {
+): { newState: FsrsState; logPartial: Omit<FsrsReviewLog, 'cardId' | 'mode' | 'responseMs' | 'inputMedium'> } {
   const isNew    = state.stability === null;
   const sBefore  = state.stability;
   const dBefore  = state.difficulty;
@@ -219,9 +226,22 @@ export function determineGrade(
   return GRADE.FORGOT;
 }
 
-/** De ijkdrempel: 4s plus 300ms per teken. Het midden van de snelheidsband. */
-export function speedThreshold(wordLength: number): number {
-  return 4000 + wordLength * 300;
+/** Herinneren kost op elk medium evenveel; alleen tikken verschilt. */
+const RECALL_MS = 4000;
+
+/**
+ * Tiktarief per teken. Ruwweg 65 woorden per minuut op een fysiek toetsenbord
+ * tegenover 34 op glas. Geschat, niet gemeten — daarom slaan we het medium bij
+ * elke review op, zodat deze twee getallen later uit de historie te toetsen zijn.
+ */
+const PER_CHAR_MS: Record<InputMedium, number> = { keyboard: 180, touch: 340 };
+
+/**
+ * De ijkdrempel: herinnertijd plus de tijd die het tikken redelijkerwijs kost.
+ * Het midden van de snelheidsband.
+ */
+export function speedThreshold(answerLength: number, medium: InputMedium): number {
+  return RECALL_MS + answerLength * PER_CHAR_MS[medium];
 }
 
 /**
@@ -233,32 +253,16 @@ export function speedThreshold(wordLength: number): number {
  * onder zat krijgt dus minder dan voorheen, wie er net boven zat meer; de
  * ondergrens blijft het gewone goed, dus niemand gaat erop achteruit.
  */
-export function speedFactor(responseMs: number | null, wordLength: number): number {
+export function speedFactor(
+  responseMs: number | null, answerLength: number, medium: InputMedium,
+): number {
   if (responseMs === null || !Number.isFinite(responseMs)) return 0;
-  const t    = speedThreshold(wordLength);
+  const t    = speedThreshold(answerLength, medium);
   const fast = 0.5 * t;
   const slow = 1.5 * t;
   if (responseMs <= fast) return 1;
   if (responseMs >= slow) return 0;
   return (slow - responseMs) / (slow - fast);
-}
-
-/**
- * Upgrade GOOD → EASY bij razendsnel beantwoorden van getypte modi.
- * Geldt alleen voor typed/listen, niet voor MC of zelfbeoordeling.
- *
- * Blijft bestaan voor wie een hele grade nodig heeft; de sessie gebruikt
- * `gradeForAnswer`, dat een gebroken waarde teruggeeft.
- */
-export function adjustGradeBySpeed(
-  grade:         FsrsGrade,
-  mode:          FsrsMode,
-  responseTimeMs: number,
-  wordLength:    number,
-): FsrsGrade {
-  if (grade !== GRADE.GOOD) return grade;
-  if (mode === 'mc' || mode === 'self_assess') return grade;
-  return responseTimeMs <= speedThreshold(wordLength) ? GRADE.EASY : grade;
 }
 
 /**
@@ -271,17 +275,18 @@ export function adjustGradeBySpeed(
  * Zonder invoertijd (`null`, bij overslaan en meerkeuze) is er geen upgrade.
  */
 export function gradeForAnswer(
-  mode:        FsrsMode,
-  matchResult: 'correct' | 'almost' | 'wrong',
-  responseMs:  number | null,
-  wordLength:  number,
+  mode:         FsrsMode,
+  matchResult:  'correct' | 'almost' | 'wrong',
+  responseMs:   number | null,
+  answerLength: number,
+  medium:       InputMedium,
 ): number {
   const base = determineGrade(mode, matchResult);
   // Alleen een goed antwoord kan meeschalen; bijna en fout staan vast, en
   // meerkeuze meet geen tijd die iets zegt over herinneren.
   if (base !== GRADE.GOOD) return base;
   if (mode === 'mc' || mode === 'self_assess') return base;
-  return GRADE.GOOD + speedFactor(responseMs, wordLength);
+  return GRADE.GOOD + speedFactor(responseMs, answerLength, medium);
 }
 
 // ─── SESSIE OPBOUWEN ─────────────────────────────────────────────────────────
@@ -474,6 +479,30 @@ export function intervalText(days: number): string {
   }
   const months = Math.round(days / 30);
   return months === 1 ? '1 maand' : `${months} maanden`;
+}
+
+/**
+ * Hetzelfde interval, bondig: `+6 d`, `+4 wk`, `+2 mnd`. Zelfde grenzen als
+ * `intervalText`, zodat de twee weergaven niet uiteen kunnen lopen.
+ */
+export function intervalShort(days: number): string {
+  if (days < 14)  return `+${days} d`;
+  if (days < 120) return `+${Math.round(days / 7)} wk`;
+  return `+${Math.round(days / 30)} mnd`;
+}
+
+/**
+ * Hoe ver is dit woord op weg naar verankerd? 0 bij een dag, 1 vanaf de
+ * verankerdrempel. Logaritmisch, want het verschil tussen één en zes dagen
+ * telt zwaarder dan tussen tachtig en vijfentachtig.
+ *
+ * Dit stuurt de kleur van het briefje: die is volledig goud op het moment dat
+ * het woord `ANCHOR_DAYS` haalt. De kleur codeert dus een toestand die het
+ * systeem al kent, niet een versiering.
+ */
+export function intervalTone(days: number): number {
+  if (days <= 1) return 0;
+  return clamp(Math.log(days) / Math.log(ANCHOR_DAYS), 0, 1);
 }
 
 /** Leesbare intervaltekst voor een grade + state. */

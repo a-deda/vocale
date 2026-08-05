@@ -31,7 +31,7 @@ const H = vi.hoisted(() => {
       { cardId: string; mode: string; dueDate: string | null }[],
     updateWord: vi.fn(() => Promise.resolve()),
     upsertFsrsState: vi.fn(() => Promise.resolve()),
-    addReviewLog: vi.fn(() => Promise.resolve()),
+    addReviewLog: vi.fn((_log: Record<string, unknown>) => Promise.resolve()),
     updateStreak: vi.fn(() => Promise.resolve()),
     addSession: vi.fn((_session: {
       date: string; wordsStudied: number; correct: number; incorrect: number; duration: number;
@@ -246,11 +246,13 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
 
   /**
    * Bij een goed antwoord toont de app geen feedbackscherm, dus het briefje op
-   * het veld is de enige plek waar staat wanneer het woord terugkomt. 'parlare'
-   * telt 7 tekens: de ijkdrempel ligt op 4000 + 7 x 300 = 6100 ms.
+   * het veld is de enige plek waar staat wanneer het woord terugkomt.
+   * 'parlare' telt 7 tekens; op een toetsenbord is de ijkdrempel dus
+   * 4000 + 7 x 180 = 5260 ms. De testomgeving mockt matchMedia op false, dus
+   * alles leest als toetsenbord.
    */
   describe('het briefje toont wanneer het woord terugkomt', () => {
-    const T = 6100;
+    const T = 5260;
 
     /** Beantwoordt goed na `elapsed` ms en geeft de tekst van het briefje terug. */
     function answerAfter(elapsed: number): string | null {
@@ -263,27 +265,24 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
       fireEvent.click(screen.getByText('Controleer'));
       // Het briefje komt met een korte vertraging op, zodat het niet met de
       // flits vecht.
-      act(() => { vi.advanceTimersByTime(200); });
+      act(() => { vi.advanceTimersByTime(300); });
 
-      const note = screen.queryByText(/^over /);
+      const note = screen.queryByText(/^\+\d/);
       return note ? note.textContent : null;
     }
 
-    /**
-     * "over 3 weken" -> 21; "over 4 dagen" -> 4.
-     * Let op: "weken" bevat "week" niet — week/weken, met wegvallende e.
-     */
+    /** "+3 wk" -> 21; "+4 d" -> 4. */
     function toDays(text: string): number {
       const n = Number(text.match(/\d+/)![0]);
-      if (/weken|week/.test(text))   return n * 7;
-      if (/maanden|maand/.test(text)) return n * 30;
+      if (text.includes('wk'))  return n * 7;
+      if (text.includes('mnd')) return n * 30;
       return n;
     }
 
-    it('verschijnt na een goed antwoord', () => {
+    it('verschijnt na een goed antwoord, bondig', () => {
       vi.useFakeTimers();
       try {
-        expect(answerAfter(3000)).toMatch(/^over /);
+        expect(answerAfter(3000)).toMatch(/^\+\d+ (d|wk|mnd)$/);
       } finally {
         vi.useRealTimers();
       }
@@ -306,22 +305,36 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
         renderStudy();
         fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'fout' } });
         fireEvent.click(screen.getByText('Controleer'));
-        act(() => { vi.advanceTimersByTime(300); });
-        expect(screen.queryByText(/^over /)).not.toBeInTheDocument();
+        act(() => { vi.advanceTimersByTime(400); });
+        expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
       } finally {
         vi.useRealTimers();
       }
     });
 
-    it('slaat de gebroken beoordeling op, niet alleen de afgeronde', async () => {
+    it('verschijnt niet bij meerkeuze — dat woord komt deze sessie nog terug', () => {
+      H.state.queue = [{ cardId: 'w1', mode: 'mc', dueDate: null }];
+      vi.useFakeTimers();
+      try {
+        renderStudy();
+        fireEvent.click(screen.getByText('praten'));
+        act(() => { vi.advanceTimersByTime(400); });
+        expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('slaat de gebroken beoordeling en het medium op', async () => {
       vi.useFakeTimers();
       try {
         answerAfter(T); // precies op de drempel = halverwege
-        await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(1200); });
 
         const log = H.state.addReviewLog.mock.calls[0][0];
         expect(log.effectiveGrade).toBeCloseTo(3.5, 6);
         expect(log.grade).toBe(4); // afgerond, want de kolom is een SMALLINT
+        expect(log.inputMedium).toBe('keyboard');
       } finally {
         vi.useRealTimers();
       }

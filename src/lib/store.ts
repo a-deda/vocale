@@ -14,7 +14,8 @@ export type FsrsStatesMap = Record<string, Partial<Record<FsrsMode, FsrsState>>>
 /** Een gelezen review-log; het overzicht leidt hier houdbaarheid en tempo uit af. */
 export type ReviewLogRow = Pick<
   FsrsReviewLog,
-  'cardId' | 'mode' | 'grade' | 'effectiveGrade' | 'sBefore' | 'sAfter' | 'reviewedAt' | 'responseMs'
+  | 'cardId' | 'mode' | 'grade' | 'effectiveGrade' | 'inputMedium'
+  | 'sBefore' | 'sAfter' | 'reviewedAt' | 'responseMs'
 >;
 
 /** Zoveel recente reviews zijn genoeg voor de cijfers op het overzicht. */
@@ -93,11 +94,12 @@ function needsClientIdFallback(error: QueryError | null): boolean {
  * Ontbreekt een kolom nog op de database? Dan meldt PostgREST dat met een
  * schema-fout. De aanroeper kan dan opnieuw proberen zonder die kolom.
  */
-function needsColumnFallback(error: QueryError | null, column: string): boolean {
+function needsColumnFallback(error: QueryError | null, ...columns: string[]): boolean {
   if (!error) return false;
   const code = error.code ?? '';
   if (code === 'PGRST204' || code === '42703') return true;
-  return `${error.message ?? ''} ${error.details ?? ''}`.toLowerCase().includes(column);
+  const text = `${error.message ?? ''} ${error.details ?? ''}`.toLowerCase();
+  return columns.some(column => text.includes(column));
 }
 
 // Map DB row to Word type
@@ -168,6 +170,7 @@ function dbToReviewLog(row: any): ReviewLogRow {
     mode:       row.mode as FsrsMode,
     grade:      row.grade,
     effectiveGrade: row.effective_grade ?? row.grade,
+    inputMedium:    row.input_medium ?? null,
     sBefore:    row.s_before,
     sAfter:     row.s_after,
     reviewedAt: row.reviewed_at,
@@ -482,6 +485,7 @@ export function useWordStore() {
       mode:       log.mode,
       grade:      log.grade,
       effectiveGrade: log.effectiveGrade,
+      inputMedium: log.inputMedium,
       sBefore:    log.sBefore,
       sAfter:     log.sAfter,
       reviewedAt: log.reviewedAt,
@@ -503,14 +507,20 @@ export function useWordStore() {
       response_ms:   log.responseMs,
     };
 
-    const insert = (payload: typeof row & { effective_grade?: number }) =>
+    // Kolommen die pas later zijn toegevoegd; de rij zonder deze twee is nog
+    // steeds een bruikbare log.
+    const extras = {
+      effective_grade: log.effectiveGrade,
+      input_medium:    log.inputMedium,
+    };
+
+    const insert = (payload: typeof row & Partial<typeof extras>) =>
       withRetry(() => supabase.from('review_logs').insert(payload));
 
-    let res = await insert({ ...row, effective_grade: log.effectiveGrade });
+    let res = await insert({ ...row, ...extras });
 
-    // Staat de kolom nog niet op de database, dan is de afgeronde grade een
-    // bruikbare benadering — beter dan de hele log verliezen.
-    if (res.error && needsColumnFallback(res.error, 'effective_grade')) {
+    // Staan ze nog niet op de database, dan is een kalere log beter dan geen.
+    if (res.error && needsColumnFallback(res.error, 'effective_grade', 'input_medium')) {
       res = await insert(row);
     }
     if (res.error) console.error('Review log opslaan mislukt:', res.error.message);
