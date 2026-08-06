@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/components/StoreProvider';
 import { buildSession } from '@/lib/fsrs';
-import { buildOverview, formatSeconds } from '@/lib/vocabulary';
+import { buildOverview, formatSeconds, studiedToday } from '@/lib/vocabulary';
 import { localDateKey } from '@/lib/store';
 import StateBar from '@/components/vocale/StateBar';
 import RhythmDots from '@/components/vocale/RhythmDots';
@@ -24,14 +24,28 @@ export default function Dashboard() {
   );
 
   const sessionSize = stats.dailyGoal;
-  const queued = useMemo(
-    () => buildSession(
-      Object.fromEntries(words.map(w => [w.id, fsrsStates[w.id] ?? {}])),
-      today,
-      sessionSize,
-    ).length,
-    [words, fsrsStates, today, sessionSize],
-  );
+
+  /** Wat er vandaag nog in het dagdoel past. */
+  const doneToday = useMemo(() => studiedToday(reviewLogs, today), [reviewLogs, today]);
+  const budget    = Math.max(0, sessionSize - doneToday);
+
+  /**
+   * De splitsing komt uit de sessie zelf: een introductie heeft geen vervaldatum.
+   * Zo kan het getal op de knop niet uiteenlopen met wat je daarna krijgt.
+   */
+  const plan = useMemo(() => {
+    const states  = Object.fromEntries(words.map(w => [w.id, fsrsStates[w.id] ?? {}]));
+    const build   = (max: number) => buildSession(states, today, max);
+    const items   = build(budget);
+    const reviews = items.filter(i => i.dueDate !== null).length;
+    return {
+      total:   items.length,
+      reviews,
+      intro:   items.length - reviews,
+      // Ligt er werk dat alleen het dagdoel nog tegenhoudt?
+      blocked: budget === 0 && build(sessionSize).length > 0,
+    };
+  }, [words, fsrsStates, today, budget, sessionSize]);
 
   const waiting    = overview.dueToday + overview.backlog;
   const longAbsence = overview.daysAway !== null
@@ -47,7 +61,12 @@ export default function Dashboard() {
       ) : waiting > 0 ? (
         <Due count={overview.dueToday} overview={overview} />
       ) : (
-        <Nothing tomorrow={overview.dueTomorrow} />
+        <Nothing
+          tomorrow={overview.dueTomorrow}
+          intro={plan.intro}
+          blocked={plan.blocked}
+          goal={sessionSize}
+        />
       )}
 
       <div className="mt-[26px]">
@@ -55,23 +74,25 @@ export default function Dashboard() {
       </div>
 
       <div className="mt-[26px]">
-        {queued > 0 ? (
+        {plan.total > 0 ? (
           <Button
-            variant={waiting > 0 || longAbsence ? 'primary' : 'quiet'}
+            variant={plan.reviews > 0 || longAbsence ? 'primary' : 'quiet'}
             onClick={() => navigate('/studeren')}
           >
-            {waiting > 0 || longAbsence
-              ? `Begin — ${queued} woorden`
-              : `Vooruitwerken (${queued})`}
+            {planLabel(plan.reviews, plan.intro)}
+          </Button>
+        ) : plan.blocked ? (
+          <Button variant="quiet" onClick={() => navigate('/studeren')}>
+            Toch doorgaan
           </Button>
         ) : (
           <Button variant="quiet" onClick={() => navigate('/toevoegen')}>
             Woorden toevoegen
           </Button>
         )}
-        {longAbsence && queued < overview.counts.lapsed && (
+        {longAbsence && plan.total < overview.counts.lapsed && (
           <p className="mt-[10px] text-[13px] text-ink-weak">
-            De sessie stopt bij {sessionSize}. De rest komt daarna.
+            De sessie stopt bij {budget}. De rest komt daarna.
           </p>
         )}
       </div>
@@ -142,10 +163,13 @@ export default function Dashboard() {
 
 function Due({ count, overview }: { count: number; overview: ReturnType<typeof buildOverview> }) {
   // De weekregel houdt vast wat eraan komt, nu de vervalstrook eruit is.
+  // dueThisWeek heeft geen ondergrens en bevat dus ook de achterstand en
+  // vandaag; die eraf halen, anders staat hetzelfde woord in twee getallen.
+  const restOfWeek = Math.max(0, overview.dueThisWeek - overview.backlog - overview.dueToday);
   const week = [
-    overview.backlog > 0     ? `${overview.backlog} stonden er al` : null,
-    overview.dueThisWeek > 0 ? `${overview.dueThisWeek} deze week` : null,
-    overview.dueTomorrow > 0 ? `morgen ${overview.dueTomorrow}`    : null,
+    overview.backlog > 0     ? `${overview.backlog} stonden er al`  : null,
+    overview.dueTomorrow > 0 ? `morgen ${overview.dueTomorrow}`     : null,
+    restOfWeek > 0           ? `${restOfWeek} verder deze week`     : null,
   ].filter(Boolean);
 
   return (
@@ -154,18 +178,32 @@ function Due({ count, overview }: { count: number; overview: ReturnType<typeof b
         {count > 0 ? count : overview.backlog}
       </div>
       <div className="mt-[6px] text-[18px] font-medium text-ink-weak">
-        {count > 0 ? 'woorden vervallen vandaag' : 'woorden stonden er al'}
+        {count > 0 ? 'woorden te herhalen vandaag' : 'woorden stonden er al'}
       </div>
       {week.length > 0 && <Data className="mt-[10px] block">{week.join(' · ')}</Data>}
     </>
   );
 }
 
-function Nothing({ tomorrow }: { tomorrow: number }) {
+/** Knoptekst die precies benoemt wat de sessie gaat doen. */
+function planLabel(reviews: number, intro: number): string {
+  if (reviews > 0 && intro > 0) return `Begin — ${reviews} herhalen · ${intro} nieuw`;
+  if (reviews > 0)              return `Begin — ${reviews} herhalen`;
+  return `Begin — ${intro} ${intro === 1 ? 'nieuw woord' : 'nieuwe woorden'}`;
+}
+
+function Nothing({
+  tomorrow, intro, blocked, goal,
+}: { tomorrow: number; intro: number; blocked: boolean; goal: number }) {
   return (
     <div className="text-[26px] font-semibold leading-[1.25] tracking-[-0.02em] text-ink">
-      Niets vervalt vandaag.
-      {tomorrow > 0 && <><br />Morgen vervallen er {tomorrow}.</>}
+      {blocked ? `Je dagdoel van ${goal} is gehaald.` : 'Niets te herhalen vandaag.'}
+      {!blocked && intro > 0 && (
+        <><br />Er staan {intro} nieuwe woorden klaar.</>
+      )}
+      {!blocked && intro === 0 && tomorrow > 0 && (
+        <><br />Morgen komen er {tomorrow} terug.</>
+      )}
     </div>
   );
 }

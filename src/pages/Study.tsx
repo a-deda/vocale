@@ -6,12 +6,11 @@ import {
   emptyFsrsState, gradeForAnswer, intervalShort, intervalTone, previewInterval, reviewCard,
 } from '@/lib/fsrs';
 import { detectInputMedium } from '@/lib/input-medium';
-import { addDaysKey, statesForHorizon } from '@/lib/session-horizon';
 import type { FsrsGrade, FsrsMode, FsrsState, QueueItem } from '@/lib/fsrs';
 import { fuzzyMatch, fuzzyMatchWithAlternatives, generateMCOptions } from '@/lib/srs';
 import { findSynonymOriginals } from '@/lib/synonyms';
 import { splitTranslations, stripAnnotations } from '@/lib/translation-utils';
-import { buildOverview, countStates } from '@/lib/vocabulary';
+import { buildOverview, countStates, studiedToday } from '@/lib/vocabulary';
 import { localDateKey } from '@/lib/store';
 import { Word } from '@/types/word';
 import { Button, Screen, ScreenHeader, SessionHeader } from '@/components/vocale/Primitives';
@@ -50,22 +49,26 @@ export default function Study() {
   const [initialized, setInitialized]   = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  /** Doorgaan voorbij het dagdoel, als de gebruiker daar zelf voor kiest. */
+  const [ignoreDailyGoal, setIgnoreDailyGoal] = useState(false);
+
+  const doneToday = useMemo(() => studiedToday(reviewLogs, today), [reviewLogs, today]);
   /**
-   * Tot welke datum de sessie woorden ophaalt. Normaal vandaag; bij
-   * vooruitwerken schuift hij per ronde een dag op. Alleen de *selectie*
-   * verschuift — de beoordeling rekent onverminderd met de echte dag van
-   * vandaag, dus wie vroeg oefent krijgt terecht minder groei.
+   * Wat er vandaag nog in past. Zonder deze aftrek geeft elke nieuwe sessie het
+   * volle dagdoel opnieuw, en kon je eindeloos nieuwe woorden blijven halen.
    */
-  const [horizon, setHorizon] = useState(today);
+  const sessionBudget = ignoreDailyGoal
+    ? stats.dailyGoal
+    : Math.max(0, stats.dailyGoal - doneToday);
 
   useEffect(() => {
     if (initialized || words.length === 0) return;
 
     const allCardStates: Record<string, Partial<Record<FsrsMode, FsrsState>>> = {};
-    for (const w of words) allCardStates[w.id] = statesForHorizon(fsrsStates[w.id] ?? {}, horizon, today);
+    for (const w of words) allCardStates[w.id] = fsrsStates[w.id] ?? {};
 
     const wordMap = new Map(words.map(w => [w.id, w]));
-    const resolved = buildSession(allCardStates, horizon, stats.dailyGoal)
+    const resolved = buildSession(allCardStates, today, sessionBudget)
       .map(item => {
         const word = wordMap.get(item.cardId);
         return word ? { ...item, word } : null;
@@ -74,7 +77,10 @@ export default function Study() {
 
     setQueue(resolved);
     setInitialized(true);
-  }, [words, fsrsStates, initialized, horizon, today, stats.dailyGoal]);
+  }, [words, fsrsStates, initialized, today, sessionBudget]);
+
+  /** Opnieuw bouwen zodra de gebruiker het dagdoel loslaat of nieuw werk wil. */
+  const rebuild = useCallback(() => setInitialized(false), []);
 
   // ─── UI-state ───────────────────────────────────────────────────────────
   const [typedAnswer, setTypedAnswer] = useState('');
@@ -108,6 +114,8 @@ export default function Study() {
   const retriedCardsRef  = useRef(new Set<string>());
   /** Per uniek woord het laatste resultaat, zodat de sessietellers op elkaar kloppen. */
   const wordResultsRef   = useRef(new Map<string, boolean>());
+  /** Woorden die deze sessie voor het eerst zijn geïntroduceerd. */
+  const introducedRef    = useRef(new Set<string>());
   const sessionSavedRef  = useRef(false);
 
   /** Wat deze sessie opleverde; de eindkaart leest hieruit. */
@@ -150,6 +158,8 @@ export default function Study() {
 
   const currentItem = queue[currentIndex];
   const mode: FsrsMode = currentItem ? effectiveMode(currentItem) : 'typed_nl_it';
+  /** Per kaart afgeleid, dus bestand tegen een wachtrij die tijdens de sessie groeit. */
+  const phase: 'herhalen' | 'nieuw' = currentItem?.dueDate ? 'herhalen' : 'nieuw';
 
   useEffect(() => {
     if (currentItem) {
@@ -246,7 +256,8 @@ export default function Study() {
 
     const { anchored, almost, responseTimes } = tallyRef.current;
     return {
-      words:    results.size,
+      words:      results.size,
+      introduced: introducedRef.current.size,
       anchored,
       almost,
       avgResponseMs: responseTimes.length > 0
@@ -340,6 +351,7 @@ export default function Study() {
 
     // Een geslaagde kennismaking wordt in dezelfde sessie omgezet in productie.
     const introduced = usedMode === 'mc' || usedMode === 'listen_type';
+    if (introduced) introducedRef.current.add(item.cardId);
     if (introduced && result === 'correct') {
       queueFollowUp({ cardId: item.cardId, mode: 'typed_nl_it', dueDate: null, word: item.word });
     }
@@ -456,28 +468,34 @@ export default function Study() {
     [words, fsrsStates, sessions, reviewLogs, today],
   );
 
-  /** De dag die een volgende ronde erbij zou pakken. */
-  const nextHorizon = useMemo(() => addDaysKey(horizon, 1), [horizon]);
-
   /**
-   * Hoeveel woorden een ronde vooruit zou opleveren: wat er nog openstaat plus
-   * alles wat tot en met die dag vervalt. Zonder de dag op te schuiven bleef
-   * dit hangen op de nieuwe woorden die nog niet geïntroduceerd waren, en
-   * veranderde er niets aan wat er morgen klaarstond.
+   * Wat een volgende ronde vandaag nog zou opleveren, gesplitst. Nieuwe woorden
+   * zijn het normale vervolg zodra de herhalingen op zijn — dat is geen
+   * vooruitwerken, dat is gewoon iets nieuws leren.
    */
-  const aheadCount = useMemo(
-    () => buildSession(
-      Object.fromEntries(words.map(
-        w => [w.id, statesForHorizon(fsrsStates[w.id] ?? {}, nextHorizon, today)],
-      )),
-      nextHorizon,
+  const nextRound = useMemo(() => {
+    const plan = buildSession(
+      Object.fromEntries(words.map(w => [w.id, fsrsStates[w.id] ?? {}])),
+      today,
+      sessionBudget,
+    );
+    const reviews = plan.filter(i => i.dueDate !== null).length;
+    return { total: plan.length, reviews, intro: plan.length - reviews };
+  }, [words, fsrsStates, today, sessionBudget]);
+
+  /** Ligt er nog werk dat alleen het dagdoel tegenhoudt? */
+  const blockedByGoal = useMemo(() => {
+    if (sessionBudget > 0) return false;
+    return buildSession(
+      Object.fromEntries(words.map(w => [w.id, fsrsStates[w.id] ?? {}])),
+      today,
       stats.dailyGoal,
-    ).length,
-    [words, fsrsStates, nextHorizon, today, stats.dailyGoal],
-  );
+    ).length > 0;
+  }, [words, fsrsStates, today, sessionBudget, stats.dailyGoal]);
 
   const startAnotherRound = useCallback(() => {
     wordResultsRef.current.clear();
+    introducedRef.current.clear();
     retriedCardsRef.current.clear();
     tallyRef.current = { anchored: [], almost: 0, responseTimes: [] };
     sessionSavedRef.current = false;
@@ -486,22 +504,35 @@ export default function Study() {
     setTally(null);
     setPendingPool([]);
     setCurrentIndex(0);
-    // Een dag verder kijken; anders levert opnieuw bouwen precies niets op.
-    setHorizon(nextHorizon);
-    setInitialized(false);
-  }, [nextHorizon]);
+    rebuild();
+  }, [rebuild]);
+
+  /** Het dagdoel loslaten en meteen opnieuw bouwen. */
+  const continueAnyway = useCallback(() => {
+    setIgnoreDailyGoal(true);
+    startAnotherRound();
+  }, [startAnotherRound]);
 
   if (initialized && queue.length === 0) {
     return (
       <Screen>
         <ScreenHeader onMenu={() => navigate('/menu')} />
         <div className="text-[26px] font-semibold leading-[1.25] tracking-[-0.02em] text-ink">
-          Niets vervalt vandaag.
-          {overview.dueTomorrow > 0 && <><br />Morgen vervallen er {overview.dueTomorrow}.</>}
+          {blockedByGoal
+            ? `Je dagdoel van ${stats.dailyGoal} is gehaald.`
+            : 'Niets te herhalen vandaag.'}
+          {!blockedByGoal && overview.dueTomorrow > 0 && (
+            <><br />Morgen komen er {overview.dueTomorrow} terug.</>
+          )}
         </div>
-        {aheadCount > 0 && (
-          <Button variant="quiet" className="mt-[26px]" onClick={startAnotherRound}>
-            Vooruitwerken ({aheadCount})
+        {/*
+          Geen "nieuwe woorden"-knop hier: stond er nog iets nieuws klaar, dan
+          was de wachtrij niet leeg geweest. Alleen het dagdoel kan werk
+          tegenhouden dat er wél is.
+        */}
+        {blockedByGoal && (
+          <Button variant="quiet" className="mt-[26px]" onClick={continueAnyway}>
+            Toch doorgaan
           </Button>
         )}
       </Screen>
@@ -517,9 +548,12 @@ export default function Study() {
           counts={overview.counts}
           lapsedBefore={lapsedBeforeRef.current ?? overview.counts.lapsed}
           dueTomorrow={overview.dueTomorrow}
-          aheadCount={aheadCount}
+          newAvailable={nextRound.intro}
+          blockedByGoal={blockedByGoal}
+          dailyGoal={stats.dailyGoal}
           onClose={() => navigate('/')}
-          onWorkAhead={startAnotherRound}
+          onMoreNew={startAnotherRound}
+          onContinueAnyway={continueAnyway}
         />
       </Screen>
     );
@@ -558,7 +592,12 @@ export default function Study() {
 
     return (
       <Screen>
-        <SessionHeader onBack={() => navigate('/')} position={currentIndex + 1} total={queue.length} />
+        <SessionHeader
+          onBack={() => navigate('/')}
+          phase={phase}
+          position={currentIndex + 1}
+          total={queue.length}
+        />
         <FeedbackCard
           word={pending.item.word}
           input={pending.input}
@@ -577,7 +616,12 @@ export default function Study() {
 
   return (
     <Screen>
-      <SessionHeader onBack={() => navigate('/')} position={currentIndex + 1} total={queue.length} />
+      <SessionHeader
+          onBack={() => navigate('/')}
+          phase={phase}
+          position={currentIndex + 1}
+          total={queue.length}
+        />
 
       {mode === 'mc' ? (
         <IntroCard
@@ -609,6 +653,7 @@ export default function Study() {
           onEdit={() => setEditOpen(true)}
           flash={flash}
           intervalNote={intervalNote}
+          firstTime={!currentItem.dueDate}
         />
       )}
     </Screen>

@@ -202,10 +202,10 @@ export default function Profile() {
 
       <div className="bg-card rounded-xl p-5">
         <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
-          <Target className="h-4 w-4 text-accent" /> Dagelijks Doel
+          <Target className="h-4 w-4 text-accent" /> Dagdoel
         </h3>
         <div className="flex items-center gap-3">
-          {[10, 15, 20, 30].map(goal => (
+          {[12, 18, 24, 32].map(goal => (
             <button
               key={goal}
               onClick={() => updateStats({ dailyGoal: goal })}

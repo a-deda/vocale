@@ -118,14 +118,20 @@ export function ScreenHeader({ onMenu }: { onMenu: () => void }) {
   );
 }
 
-/** Sessiekop: terug plus de teller. Geen voortgangsbalk — `12 / 24` is genoeg. */
+/**
+ * Sessiekop: terug, wat je nu doet, en de teller. Geen voortgangsbalk —
+ * `12 / 24` is genoeg. De fase erbij, want een herhaling en een nieuw woord
+ * voelen hetzelfde terwijl ze dat niet zijn.
+ */
 export function SessionHeader({
-  onBack, position, total,
-}: { onBack: () => void; position: number; total: number }) {
+  onBack, phase, position, total,
+}: { onBack: () => void; phase?: 'herhalen' | 'nieuw'; position: number; total: number }) {
   return (
     <div className="mb-[22px] flex items-center justify-between">
       <button onClick={onBack} aria-label="Terug" className="text-[20px] leading-none text-ink">←</button>
-      <Data className="text-[13px]">{position} / {total}</Data>
+      <Data className="text-[13px]">
+        {phase ? `${phase} · ` : ''}{position} / {total}
+      </Data>
     </div>
   );
 }

@@ -79,7 +79,7 @@ describe('overzicht', () => {
 
     // Het kopgetal is het eerste dat je ziet; "1" staat ook in de balk, dus scope het.
     expect(container.querySelector('.text-\\[108px\\]')).toHaveTextContent('1');
-    expect(screen.getByText('woorden vervallen vandaag')).toBeInTheDocument();
+    expect(screen.getByText('woorden te herhalen vandaag')).toBeInTheDocument();
     expect(screen.getByText(/1 stonden er al/)).toBeInTheDocument(); // w1 stond al open
 
     // Toestandsbalk: wankel 1 · actief 1 · vast 1 · nieuw 1, samen 4 woorden.
@@ -103,8 +103,9 @@ describe('overzicht', () => {
     };
     renderAt(<Dashboard />);
 
-    expect(screen.getByText(/Niets vervalt vandaag\./)).toBeInTheDocument();
-    expect(screen.getByText(/Morgen vervallen er 1\./)).toBeInTheDocument();
+    // Alle vier de woorden zijn nieuw op w2 na, dus er valt wel iets te leren.
+    expect(screen.getByText(/Niets te herhalen vandaag\./)).toBeInTheDocument();
+    expect(screen.getByText(/nieuwe woorden klaar/)).toBeInTheDocument();
   });
 });
 
@@ -127,7 +128,7 @@ describe('menu', () => {
 
     expect(screen.getByText('Woordenbank')).toBeInTheDocument();
     expect(screen.getByText('Woorden toevoegen')).toBeInTheDocument();
-    expect(screen.getByText('Sessiegrootte')).toBeInTheDocument();
+    expect(screen.getByText('Dagdoel')).toBeInTheDocument();
     expect(screen.getByText('24')).toBeInTheDocument();
     expect(screen.getByText('Drempel vast')).toBeInTheDocument();
     expect(screen.getByText('90 d')).toBeInTheDocument();

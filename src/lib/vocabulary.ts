@@ -55,6 +55,21 @@ function dueDateOf(states: Partial<Record<FsrsMode, FsrsState>>): string | null 
   return states[SCHEDULING_MODE]?.dueDate ?? null;
 }
 
+/**
+ * Hoeveel unieke woorden er vandaag al langs zijn geweest.
+ *
+ * Uniek per woord, niet per kaart: één woord kan binnen één sessie meermaals
+ * voorbijkomen — een kennismaking, de getypte herhaling erna, een herkansing na
+ * een fout antwoord. Dat is één woord van je dagdoel, geen drie.
+ */
+export function studiedToday(logs: ReviewLogRow[], today: string): number {
+  const seen = new Set<string>();
+  for (const log of logs) {
+    if (log.reviewedAt?.startsWith(today)) seen.add(log.cardId);
+  }
+  return seen.size;
+}
+
 export function countStates(words: Word[], fsrsStates: FsrsStatesMap, today: string): StateCounts {
   const counts: StateCounts = { lapsed: 0, active: 0, anchored: 0, new: 0, total: words.length };
   for (const word of words) {

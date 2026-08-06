@@ -5,6 +5,8 @@ import { Button, Data, ItalianText, Label } from '@/components/vocale/Primitives
 
 export interface SessionTally {
   words:      number;
+  /** Woorden die deze sessie voor het eerst zijn geïntroduceerd. */
+  introduced: number;
   anchored:   string[];
   almost:     number;
   avgResponseMs: number | null;
@@ -15,15 +17,21 @@ export interface SessionTally {
  * is het enige bewijs dat er iets gebeurd is.
  */
 export default function SessionEnd({
-  tally, counts, lapsedBefore, dueTomorrow, aheadCount, onClose, onWorkAhead,
+  tally, counts, lapsedBefore, dueTomorrow, newAvailable, blockedByGoal, dailyGoal,
+  onClose, onMoreNew, onContinueAnyway,
 }: {
   tally:        SessionTally;
   counts:       StateCounts;
   lapsedBefore: number;
   dueTomorrow:  number;
-  aheadCount:   number;
+  /** Nieuwe woorden die vandaag nog geïntroduceerd kunnen worden. */
+  newAvailable: number;
+  /** Er ligt nog werk, maar het dagdoel houdt het tegen. */
+  blockedByGoal: boolean;
+  dailyGoal:    number;
   onClose:      () => void;
-  onWorkAhead:  () => void;
+  onMoreNew:    () => void;
+  onContinueAnyway: () => void;
 }) {
   return (
     <>
@@ -32,7 +40,8 @@ export default function SessionEnd({
           <Label>sessie afgerond</Label>
           <button onClick={onClose} aria-label="Sluiten" className="text-[17px] text-ink-weak">×</button>
         </div>
-        <Tally label="woorden" value={tally.words} />
+        <Tally label="herhaald" value={tally.words - tally.introduced} />
+        <Tally label="nieuw geleerd" value={tally.introduced} />
         <Tally label="vast geworden" value={tally.anchored.length} highlight />
         {tally.avgResponseMs !== null && (
           <Tally label="gemiddeld" value={formatSeconds(tally.avgResponseMs)} />
@@ -41,8 +50,17 @@ export default function SessionEnd({
       </div>
 
       <div className="mt-[22px] text-[26px] font-semibold leading-[1.25] tracking-[-0.02em] text-ink">
-        Niets meer vandaag.
-        {dueTomorrow > 0 && <><br />Morgen vervallen er {dueTomorrow}.</>}
+        {blockedByGoal
+          ? `Je dagdoel van ${dailyGoal} is gehaald.`
+          : newAvailable > 0
+            ? 'Alles herhaald.'
+            : 'Niets meer vandaag.'}
+        {!blockedByGoal && newAvailable > 0 && (
+          <><br />Er staan nog {newAvailable} nieuwe woorden klaar.</>
+        )}
+        {!blockedByGoal && newAvailable === 0 && dueTomorrow > 0 && (
+          <><br />Morgen komen er {dueTomorrow} terug.</>
+        )}
       </div>
 
       <div className="mt-[26px]">
@@ -52,9 +70,13 @@ export default function SessionEnd({
         )}
       </div>
 
-      {aheadCount > 0 && (
-        <Button variant="quiet" className="mt-[26px]" onClick={onWorkAhead}>
-          Vooruitwerken ({aheadCount})
+      {blockedByGoal ? (
+        <Button variant="quiet" className="mt-[26px]" onClick={onContinueAnyway}>
+          Toch doorgaan
+        </Button>
+      ) : newAvailable > 0 && (
+        <Button variant="quiet" className="mt-[26px]" onClick={onMoreNew}>
+          Nieuwe woorden ({newAvailable})
         </Button>
       )}
 

@@ -29,9 +29,6 @@ const H = vi.hoisted(() => {
     words: [makeWord()] as ReturnType<typeof makeWord>[],
     queue: [{ cardId: 'w1', mode: 'typed_nl_it', dueDate: null }] as
       { cardId: string; mode: string; dueDate: string | null }[],
-    /** Wat een sessie voor een latere dag zou opleveren. */
-    aheadQueue: [] as { cardId: string; mode: string; dueDate: string | null }[],
-
     updateWord: vi.fn(() => Promise.resolve()),
     upsertFsrsState: vi.fn(() => Promise.resolve()),
     addReviewLog: vi.fn((_log: Record<string, unknown>) => Promise.resolve()),
@@ -40,12 +37,7 @@ const H = vi.hoisted(() => {
       date: string; wordsStudied: number; correct: number; incorrect: number; duration: number;
     }) => Promise.resolve()),
   };
-  /** Zelfde vorm als localDateKey, zodat de mock op de dag kan vergelijken. */
-  const dayKey = (offset = 0) => {
-    const d = new Date(Date.now() + offset * 86400000);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  };
-  return { makeWord, state, dayKey };
+  return { makeWord, state };
 });
 
 vi.mock('@/components/StoreProvider', () => ({
@@ -73,13 +65,11 @@ vi.mock('@/components/StoreProvider', () => ({
 vi.mock('@/integrations/supabase/client', () => ({ supabase: {} }));
 
 // Maak de wachtrij deterministisch; laat de rest van fsrs (grading) echt.
-// De eerste opgevraagde dag is "vandaag"; elke latere dag is vooruitwerken.
 vi.mock('@/lib/fsrs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/fsrs')>();
   return {
     ...actual,
-    buildSession: (_states: unknown, day: string) =>
-      (day > H.dayKey() ? H.state.aheadQueue : H.state.queue),
+    buildSession: () => H.state.queue,
   };
 });
 
@@ -95,7 +85,6 @@ const NL_INPUT = 'typ het Nederlands';
 beforeEach(() => {
   H.state.words = [H.makeWord()];
   H.state.queue = [{ cardId: 'w1', mode: 'typed_nl_it', dueDate: null }];
-  H.state.aheadQueue = [];
   H.state.updateWord.mockClear();
   H.state.upsertFsrsState.mockClear();
   H.state.addReviewLog.mockClear();
@@ -358,29 +347,12 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
   });
 });
 
-describe('Study – vooruitwerken kijkt een dag verder', () => {
-  it('vraagt bij een lege dag een sessie op voor morgen, en biedt die aan', () => {
-    // Vandaag niets te doen; morgen wél. De mock antwoordt per opgevraagde dag,
-    // zodat zichtbaar wordt met welke horizon Study bouwt.
-    H.state.queue      = [];
-    H.state.aheadQueue = [{ cardId: 'w1', mode: 'typed_nl_it', dueDate: null }];
-
+describe('Study – het lege scherm', () => {
+  it('spreekt van herhalen, niet van vervallen, en biedt geen vooruitwerken', () => {
+    H.state.queue = [];
     renderStudy();
 
-    // Dit is het scherm waar je vastliep: niets meer te doen vandaag.
-    expect(screen.getByText(/Niets vervalt vandaag/)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText(/Vooruitwerken \(1\)/));
-
-    // Na het opschuiven staat het woord van morgen er wél.
-    expect(screen.getByPlaceholderText(IT_INPUT)).toBeInTheDocument();
-  });
-
-  it('biedt niets aan als er ook morgen niets klaarstaat', () => {
-    H.state.queue      = [];
-    H.state.aheadQueue = [];
-
-    renderStudy();
+    expect(screen.getByText(/Niets te herhalen vandaag/)).toBeInTheDocument();
     expect(screen.queryByText(/Vooruitwerken/)).not.toBeInTheDocument();
   });
 });
