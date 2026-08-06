@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 /**
@@ -31,7 +31,7 @@ const H = vi.hoisted(() => {
       { cardId: string; mode: string; dueDate: string | null }[],
     updateWord: vi.fn(() => Promise.resolve()),
     upsertFsrsState: vi.fn(() => Promise.resolve()),
-    addReviewLog: vi.fn(() => Promise.resolve()),
+    addReviewLog: vi.fn((_log: Record<string, unknown>) => Promise.resolve()),
     updateStreak: vi.fn(() => Promise.resolve()),
     addSession: vi.fn((_session: {
       date: string; wordsStudied: number; correct: number; incorrect: number; duration: number;
@@ -237,11 +237,108 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
       expect(screen.queryByText('Verder')).not.toBeInTheDocument();
       expect(screen.queryByText('sessie afgerond')).not.toBeInTheDocument();
 
-      act(() => { vi.advanceTimersByTime(400); });
+      act(() => { vi.advanceTimersByTime(1000); });
       expect(screen.getByText('sessie afgerond')).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  /**
+   * Bij een goed antwoord toont de app geen feedbackscherm, dus het briefje op
+   * het veld is de enige plek waar staat wanneer het woord terugkomt.
+   * 'parlare' telt 7 tekens; op een toetsenbord is de ijkdrempel dus
+   * 4000 + 7 x 180 = 5260 ms. De testomgeving mockt matchMedia op false, dus
+   * alles leest als toetsenbord.
+   */
+  describe('het briefje toont wanneer het woord terugkomt', () => {
+    const T = 5260;
+
+    /** Beantwoordt goed na `elapsed` ms en geeft de tekst van het briefje terug. */
+    function answerAfter(elapsed: number): string | null {
+      // Zelfstandig aanroepbaar: ruim een eventuele vorige render eerst op.
+      cleanup();
+      renderStudy();
+      act(() => { vi.advanceTimersByTime(elapsed); });
+
+      fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
+      fireEvent.click(screen.getByText('Controleer'));
+      // Het briefje komt met een korte vertraging op, zodat het niet met de
+      // flits vecht.
+      act(() => { vi.advanceTimersByTime(300); });
+
+      const note = screen.queryByText(/^\+\d/);
+      return note ? note.textContent : null;
+    }
+
+    /** "+3 wk" -> 21; "+4 d" -> 4. */
+    function toDays(text: string): number {
+      const n = Number(text.match(/\d+/)![0]);
+      if (text.includes('wk'))  return n * 7;
+      if (text.includes('mnd')) return n * 30;
+      return n;
+    }
+
+    it('verschijnt na een goed antwoord, bondig', () => {
+      vi.useFakeTimers();
+      try {
+        expect(answerAfter(3000)).toMatch(/^\+\d+ (d|wk|mnd)$/);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('belooft een langere periode naarmate je sneller antwoordt', () => {
+      vi.useFakeTimers();
+      try {
+        const snel  = answerAfter(0.5 * T)!;
+        const traag = answerAfter(1.5 * T)!;
+        expect(toDays(snel)).toBeGreaterThan(toDays(traag));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('verschijnt niet na een fout antwoord — daar is het feedbackscherm voor', () => {
+      vi.useFakeTimers();
+      try {
+        renderStudy();
+        fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'fout' } });
+        fireEvent.click(screen.getByText('Controleer'));
+        act(() => { vi.advanceTimersByTime(400); });
+        expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('verschijnt niet bij meerkeuze — dat woord komt deze sessie nog terug', () => {
+      H.state.queue = [{ cardId: 'w1', mode: 'mc', dueDate: null }];
+      vi.useFakeTimers();
+      try {
+        renderStudy();
+        fireEvent.click(screen.getByText('praten'));
+        act(() => { vi.advanceTimersByTime(400); });
+        expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('slaat de gebroken beoordeling en het medium op', async () => {
+      vi.useFakeTimers();
+      try {
+        answerAfter(T); // precies op de drempel = halverwege
+        await act(async () => { await vi.advanceTimersByTimeAsync(1200); });
+
+        const log = H.state.addReviewLog.mock.calls[0][0];
+        expect(log.effectiveGrade).toBeCloseTo(3.5, 6);
+        expect(log.grade).toBe(4); // afgerond, want de kolom is een SMALLINT
+        expect(log.inputMedium).toBe('keyboard');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
 
@@ -262,7 +359,7 @@ describe('Study – elke les wordt opgeslagen', () => {
 
       fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
       fireEvent.click(screen.getByText('Controleer'));
-      act(() => { vi.advanceTimersByTime(400); });
+      act(() => { vi.advanceTimersByTime(1000); });
 
       // Nog midden in de les: nog niets weggeschreven.
       expect(H.state.addSession).not.toHaveBeenCalled();
@@ -286,7 +383,7 @@ describe('Study – elke les wordt opgeslagen', () => {
 
       fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
       fireEvent.click(screen.getByText('Controleer'));
-      act(() => { vi.advanceTimersByTime(400); });
+      act(() => { vi.advanceTimersByTime(1000); });
 
       expect(screen.getByText('sessie afgerond')).toBeInTheDocument();
       expect(H.state.addSession).toHaveBeenCalledTimes(1);

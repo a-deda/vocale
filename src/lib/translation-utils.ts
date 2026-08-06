@@ -39,6 +39,21 @@ export function splitTranslations(translation: string): string[] {
   return translation.split(';').map(t => t.trim()).filter(Boolean);
 }
 
+/**
+ * Het kortste geaccepteerde antwoord, in tekens: zoveel moet je minstens typen.
+ *
+ * `fuzzyMatch` rekent elke variant goed, dus de gebruiker mag de goedkoopste
+ * kiezen. Het rauwe veld tellen zou "praten; kletsen" op 15 zetten terwijl er
+ * 6 tekens nodig zijn. Annotaties als "(agg.)" typ je niet en tellen niet mee.
+ */
+export function answerLength(expected: string): number {
+  const options = splitTranslations(expected)
+    .map(t => stripAnnotations(t))
+    .filter(Boolean);
+  if (options.length === 0) return stripAnnotations(expected).length;
+  return Math.min(...options.map(o => o.length));
+}
+
 /** Format multiple translations for display (separated by " / ") */
 export function formatTranslations(translation: string): string {
   return splitTranslations(translation).join(' / ');

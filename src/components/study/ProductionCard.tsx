@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Word } from '@/types/word';
 import { formatTranslationsClean, stripAnnotations } from '@/lib/translation-utils';
 import { AccentRow, TypedInput } from '@/components/vocale/Input';
+import IntervalNote from '@/components/vocale/IntervalNote';
 import { Button, ItalianText, TextAction } from '@/components/vocale/Primitives';
 import PromptCard, { requiresArticle } from './PromptCard';
 
@@ -14,12 +15,14 @@ interface ProductionCardProps {
   onSubmit:     () => void;
   onSkip:       () => void;
   onEdit:       () => void;
-  /** Laat het veld goud oplichten: het enige signaal bij een goed antwoord. */
+  /** Laat het veld goud oplichten: het signaal dat het antwoord goed was. */
   flash:        boolean;
+  /** Wanneer dit woord terugkomt ("+4 wk") plus de kleursterkte. Alleen bij goed. */
+  intervalNote: { text: string; tone: number } | null;
 }
 
 export default function ProductionCard({
-  word, direction, typedAnswer, onTypeAnswer, onSubmit, onSkip, onEdit, flash,
+  word, direction, typedAnswer, onTypeAnswer, onSubmit, onSkip, onEdit, flash, intervalNote,
 }: ProductionCardProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -62,17 +65,21 @@ export default function ProductionCard({
         )}
       </PromptCard>
 
-      <TypedInput
-        ref={inputRef}
-        value={typedAnswer}
-        flash={flash}
-        placeholder={toItalian ? 'typ het Italiaans' : 'typ het Nederlands'}
-        onChange={e => onTypeAnswer(e.target.value)}
-        onKeyDown={(e: React.KeyboardEvent) => {
-          if (e.key !== 'Enter') return;
-          if (hasInput) onSubmit(); else onSkip();
-        }}
-      />
+      {/* Relatief, zodat het briefje op het veld zelf kan liggen. */}
+      <div className="relative">
+        <TypedInput
+          ref={inputRef}
+          value={typedAnswer}
+          flash={flash}
+          placeholder={toItalian ? 'typ het Italiaans' : 'typ het Nederlands'}
+          onChange={e => onTypeAnswer(e.target.value)}
+          onKeyDown={(e: React.KeyboardEvent) => {
+            if (e.key !== 'Enter') return;
+            if (hasInput) onSubmit(); else onSkip();
+          }}
+        />
+        {intervalNote && <IntervalNote text={intervalNote.text} tone={intervalNote.tone} />}
+      </div>
 
       {toItalian && <AccentRow onInsert={insertAccent} />}
 

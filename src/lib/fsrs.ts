@@ -1,5 +1,7 @@
 // FSRS-5 algoritme — zie https://github.com/open-spaced-repetition/fsrs4anki/wiki
 
+import type { InputMedium } from '@/lib/input-medium';
+
 // ─── CONSTANTEN ──────────────────────────────────────────────────────────────
 
 const F = 19 / 81;
@@ -57,9 +59,24 @@ export interface FsrsReviewLog {
   sAfter:       number;
   dBefore:      number | null;
   dAfter:       number;
+  /**
+   * De werkelijk toegepaste beoordeling, die tussen goed en moeiteloos gebroken
+   * kan zijn. `grade` hierboven is de afgeronde bucket, want de databasekolom
+   * is een SMALLINT met een check op 1 t/m 4; zonder deze waarde is de historie
+   * niet te reproduceren.
+   */
+  effectiveGrade: number;
+  /**
+   * Waarmee er getypt werd. Het tiktarief per medium is nu geschat; met dit
+   * veld erbij is het achteraf uit de eigen historie te toetsen.
+   */
+  inputMedium:  InputMedium | null;
   intervalDays: number;
   reviewedAt:   string;
-  /** Tijd tot de eerste toets, in ms. Null voor modi zonder invoer. */
+  /**
+   * Tijd van kaart tot bevestiging, in ms — inclusief de tijd die het typen
+   * kostte. Null voor modi zonder invoer en bij overslaan.
+   */
   responseMs:   number | null;
 }
 
@@ -84,27 +101,45 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
 }
 
-export function initialStability(grade: FsrsGrade): number {
-  return W[grade - 1];
+/**
+ * De vier ankerwaarden W[0..3] horen bij hele grades. Bij een gebroken grade
+ * wordt ertussen geïnterpoleerd — zonder dat zou `W[2.4]` `undefined` opleveren
+ * en de stabiliteit van een gloednieuw woord op NaN zetten.
+ */
+export function initialStability(grade: number): number {
+  const g  = clamp(grade, 1, 4);
+  const lo = Math.floor(g);
+  const hi = Math.ceil(g);
+  const a  = W[lo - 1];
+  const b  = W[hi - 1];
+  return a + (b - a) * (g - lo);
 }
 
-export function initialDifficulty(grade: FsrsGrade): number {
+/** Al continu in `grade`: de exponent slikt een gebroken waarde zonder meer. */
+export function initialDifficulty(grade: number): number {
   return clamp(W[4] - Math.exp(W[5] * (grade - 1)) + 1, 1, 10);
 }
 
-export function updateDifficulty(D: number, grade: FsrsGrade): number {
+/**
+ * Werkt ongewijzigd met een gebroken grade: de term is al lineair in `grade`,
+ * dus een 3,5 levert precies de helft van de stap die een 4 zou opleveren.
+ */
+export function updateDifficulty(D: number, grade: number): number {
   const delta = -W[6] * (grade - 3);
   return clamp(D + delta * ((10 - D) / 9), 1, 10);
 }
 
 export function stabilityAfterSuccess(
-  D: number, S: number, R: number, grade: FsrsGrade
+  D: number, S: number, R: number, grade: number
 ): number {
   const tD = 11 - D;
   const tS = Math.pow(S, -W[9]);
   const tR = Math.exp(W[10] * (1 - R)) - 1;
   const h  = grade === GRADE.HARD ? W[15] : 1.0;
-  const b  = grade === GRADE.EASY ? W[16] : 1.0;
+  // De enige harde vertakking in het model, nu geïnterpoleerd: tussen goed en
+  // moeiteloos loopt de bonus vloeiend van 1 naar W[16]. Bij een hele 3 of 4
+  // komt er exact uit wat er vóór deze wijziging uitkwam.
+  const b  = grade > GRADE.GOOD ? 1 + (grade - GRADE.GOOD) * (W[16] - 1) : 1.0;
   const c  = Math.exp(W[8]);
   return S * (1 + tD * tS * tR * h * b * c);
 }
@@ -120,9 +155,10 @@ export function stabilityAfterFailure(D: number, S: number, R: number): number {
 
 export function reviewCard(
   state: FsrsState,
-  grade: FsrsGrade,
+  /** Mag gebroken zijn tussen goed en moeiteloos; zie `speedFactor`. */
+  grade: number,
   today: string // YYYY-MM-DD
-): { newState: FsrsState; logPartial: Omit<FsrsReviewLog, 'cardId' | 'mode' | 'responseMs'> } {
+): { newState: FsrsState; logPartial: Omit<FsrsReviewLog, 'cardId' | 'mode' | 'responseMs' | 'inputMedium'> } {
   const isNew    = state.stability === null;
   const sBefore  = state.stability;
   const dBefore  = state.difficulty;
@@ -158,7 +194,8 @@ export function reviewCard(
   return {
     newState,
     logPartial: {
-      grade,
+      grade:          clamp(Math.round(grade), 1, 4) as FsrsGrade,
+      effectiveGrade: grade,
       rAtReview:    rNow,
       sBefore,
       sAfter:       newS,
@@ -189,20 +226,67 @@ export function determineGrade(
   return GRADE.FORGOT;
 }
 
+/** Herinneren kost op elk medium evenveel; alleen tikken verschilt. */
+const RECALL_MS = 4000;
+
 /**
- * Upgrade GOOD → EASY bij razendsnel beantwoorden van getypte modi.
- * Geldt alleen voor typed/listen, niet voor MC of zelfbeoordeling.
+ * Tiktarief per teken. Ruwweg 65 woorden per minuut op een fysiek toetsenbord
+ * tegenover 34 op glas. Geschat, niet gemeten — daarom slaan we het medium bij
+ * elke review op, zodat deze twee getallen later uit de historie te toetsen zijn.
  */
-export function adjustGradeBySpeed(
-  grade:         FsrsGrade,
-  mode:          FsrsMode,
-  responseTimeMs: number,
-  wordLength:    number,
-): FsrsGrade {
-  if (grade !== GRADE.GOOD) return grade;
-  if (mode === 'mc' || mode === 'self_assess') return grade;
-  const threshold = 4000 + wordLength * 300; // 4s + 300ms/teken
-  return responseTimeMs <= threshold ? GRADE.EASY : grade;
+const PER_CHAR_MS: Record<InputMedium, number> = { keyboard: 180, touch: 340 };
+
+/**
+ * De ijkdrempel: herinnertijd plus de tijd die het tikken redelijkerwijs kost.
+ * Het midden van de snelheidsband.
+ */
+export function speedThreshold(answerLength: number, medium: InputMedium): number {
+  return RECALL_MS + answerLength * PER_CHAR_MS[medium];
+}
+
+/**
+ * Hoe moeiteloos ging dit, van 0 (niet) tot 1 (volledig)?
+ *
+ * De oude drempel was een klif: één milliseconde later en je verloor de hele
+ * bonus. Hij is nu het midden van een band — vol op de helft van de drempel,
+ * niets meer op anderhalf keer de drempel, lineair daartussen. Wie er net
+ * onder zat krijgt dus minder dan voorheen, wie er net boven zat meer; de
+ * ondergrens blijft het gewone goed, dus niemand gaat erop achteruit.
+ */
+export function speedFactor(
+  responseMs: number | null, answerLength: number, medium: InputMedium,
+): number {
+  if (responseMs === null || !Number.isFinite(responseMs)) return 0;
+  const t    = speedThreshold(answerLength, medium);
+  const fast = 0.5 * t;
+  const slow = 1.5 * t;
+  if (responseMs <= fast) return 1;
+  if (responseMs >= slow) return 0;
+  return (slow - responseMs) / (slow - fast);
+}
+
+/**
+ * De beoordeling zoals hij daadwerkelijk wordt opgeslagen, snelheid inbegrepen.
+ *
+ * Eén ingang voor zowel het opslaan als het tonen van het interval. Werden die
+ * los samengesteld, dan kon het getoonde `+N d` afwijken van wat er gepland werd:
+ * de ene plek paste de snelheidsupgrade toe en de andere niet.
+ *
+ * Zonder invoertijd (`null`, bij overslaan en meerkeuze) is er geen upgrade.
+ */
+export function gradeForAnswer(
+  mode:         FsrsMode,
+  matchResult:  'correct' | 'almost' | 'wrong',
+  responseMs:   number | null,
+  answerLength: number,
+  medium:       InputMedium,
+): number {
+  const base = determineGrade(mode, matchResult);
+  // Alleen een goed antwoord kan meeschalen; bijna en fout staan vast, en
+  // meerkeuze meet geen tijd die iets zegt over herinneren.
+  if (base !== GRADE.GOOD) return base;
+  if (mode === 'mc' || mode === 'self_assess') return base;
+  return GRADE.GOOD + speedFactor(responseMs, answerLength, medium);
 }
 
 // ─── SESSIE OPBOUWEN ─────────────────────────────────────────────────────────
@@ -374,18 +458,56 @@ export function getFsrsMasteryScore(
 }
 
 /** Voorspel het volgende interval (in dagen) voor een gegeven grade + state. */
-export function previewInterval(state: FsrsState, grade: FsrsGrade, today: string): number {
+export function previewInterval(state: FsrsState, grade: number, today: string): number {
   const { newState } = reviewCard(state, grade, today);
   return nextInterval(newState.stability!);
 }
 
-/** Leesbare intervaltekst voor de FSRS-grade-knoppen op de flashcard. */
-export function fsrsIntervalText(state: FsrsState, grade: FsrsGrade, today: string): string {
-  const days = previewInterval(state, grade, today);
-  if (days === 1) return '1 dag';
-  if (days < 7)  return `${days} dagen`;
-  if (days < 30) return `${Math.round(days / 7)} weken`;
-  return `${Math.round(days / 30)} maanden`;
+/**
+ * Een aantal dagen als leesbare periode.
+ *
+ * Weken lopen bewust door tot ruim vier maanden. In maanden afronden maakt het
+ * verschil tussen 76 en 88 dagen onzichtbaar — allebei "3 maanden" — terwijl
+ * juist dát verschil is wat een snel antwoord oplevert.
+ */
+export function intervalText(days: number): string {
+  if (days === 1)  return '1 dag';
+  if (days < 14)   return `${days} dagen`;
+  if (days < 120) {
+    const weeks = Math.round(days / 7);
+    return weeks === 1 ? '1 week' : `${weeks} weken`;
+  }
+  const months = Math.round(days / 30);
+  return months === 1 ? '1 maand' : `${months} maanden`;
+}
+
+/**
+ * Hetzelfde interval, bondig: `+6 d`, `+4 wk`, `+2 mnd`. Zelfde grenzen als
+ * `intervalText`, zodat de twee weergaven niet uiteen kunnen lopen.
+ */
+export function intervalShort(days: number): string {
+  if (days < 14)  return `+${days} d`;
+  if (days < 120) return `+${Math.round(days / 7)} wk`;
+  return `+${Math.round(days / 30)} mnd`;
+}
+
+/**
+ * Hoe ver is dit woord op weg naar verankerd? 0 bij een dag, 1 vanaf de
+ * verankerdrempel. Logaritmisch, want het verschil tussen één en zes dagen
+ * telt zwaarder dan tussen tachtig en vijfentachtig.
+ *
+ * Dit stuurt de kleur van het briefje: die is volledig goud op het moment dat
+ * het woord `ANCHOR_DAYS` haalt. De kleur codeert dus een toestand die het
+ * systeem al kent, niet een versiering.
+ */
+export function intervalTone(days: number): number {
+  if (days <= 1) return 0;
+  return clamp(Math.log(days) / Math.log(ANCHOR_DAYS), 0, 1);
+}
+
+/** Leesbare intervaltekst voor een grade + state. */
+export function fsrsIntervalText(state: FsrsState, grade: number, today: string): string {
+  return intervalText(previewInterval(state, grade, today));
 }
 
 // ─── LABELS ──────────────────────────────────────────────────────────────────

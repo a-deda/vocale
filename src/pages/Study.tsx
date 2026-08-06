@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/components/StoreProvider';
 import {
-  ANCHOR_DAYS, GRADE, FSRS_MODES, adjustGradeBySpeed, buildSession,
-  determineGrade, emptyFsrsState, previewInterval, reviewCard,
+  ANCHOR_DAYS, GRADE, FSRS_MODES, buildSession,
+  emptyFsrsState, gradeForAnswer, intervalShort, intervalTone, previewInterval, reviewCard,
 } from '@/lib/fsrs';
+import { detectInputMedium } from '@/lib/input-medium';
 import type { FsrsGrade, FsrsMode, FsrsState, QueueItem } from '@/lib/fsrs';
 import { fuzzyMatch, fuzzyMatchWithAlternatives, generateMCOptions } from '@/lib/srs';
 import { findSynonymOriginals } from '@/lib/synonyms';
-import { splitTranslations, stripAnnotations } from '@/lib/translation-utils';
+import { answerLength, splitTranslations, stripAnnotations } from '@/lib/translation-utils';
 import { buildOverview, countStates } from '@/lib/vocabulary';
 import { localDateKey } from '@/lib/store';
 import { Word } from '@/types/word';
@@ -24,10 +25,23 @@ import type { SessionTally } from '@/components/study/SessionEnd';
 type MatchResult = 'correct' | 'almost' | 'wrong';
 type QueuedWord  = QueueItem & { word: Word };
 
+/**
+ * Hoeveel tekens moet je in deze modus werkelijk intypen? Bij IT→NL is dat de
+ * vertaling, niet het Italiaans — die twee werden eerder door elkaar gehaald.
+ */
+function typedLength(word: Word, usedMode: FsrsMode): number {
+  return answerLength(usedMode === 'typed_it_nl' ? word.translation : word.original);
+}
+
 /** Minimaal aantal kaarten tussen een kennismaking en de getypte herhaling. */
 const MIN_SPACING = 3;
-/** De goudflits bij een goed antwoord; daarna komt de volgende kaart. */
-const FLASH_MS = 320;
+/**
+ * Een goed antwoord in drie tellen: het veld kleurt kort goud, daarna komt het
+ * briefje op een wit veld op — een goudverloop op goud zou onzichtbaar zijn —
+ * en pas daarna de volgende kaart.
+ */
+const FLASH_MS = 260;
+const HOLD_MS  = 1000;
 
 export default function Study() {
   const navigate = useNavigate();
@@ -65,6 +79,8 @@ export default function Study() {
   const [typedAnswer, setTypedAnswer] = useState('');
   const [selectedMC, setSelectedMC]   = useState<string | null>(null);
   const [flash, setFlash]             = useState(false);
+  /** "+4 wk" plus de kleursterkte — staat op het veld na een goed antwoord. */
+  const [intervalNote, setIntervalNote] = useState<{ text: string; tone: number } | null>(null);
   const [editOpen, setEditOpen]       = useState(false);
 
   /** Gepauzeerd feedbackscherm: de beoordeling wordt pas bij 'Verder' weggeschreven. */
@@ -153,7 +169,7 @@ export default function Study() {
   // ─── Wegschrijven ───────────────────────────────────────────────────────
 
   const persistReview = useCallback(async (
-    item: QueuedWord, grade: FsrsGrade, usedMode: FsrsMode, responseMs: number | null,
+    item: QueuedWord, grade: number, usedMode: FsrsMode, responseMs: number | null,
   ) => {
     const existing = fsrsStates[item.cardId]?.[usedMode] ?? emptyFsrsState();
     const { newState, logPartial } = reviewCard(existing, grade, today);
@@ -164,7 +180,10 @@ export default function Study() {
     }
 
     await upsertFsrsState(item.cardId, usedMode, newState);
-    await addReviewLog({ ...logPartial, cardId: item.cardId, mode: usedMode, responseMs });
+    await addReviewLog({
+      ...logPartial,
+      cardId: item.cardId, mode: usedMode, responseMs, inputMedium: detectInputMedium(),
+    });
     await updateStreak();
 
     const allStates = { ...(fsrsStates[item.cardId] ?? {}), [usedMode]: newState };
@@ -225,6 +244,7 @@ export default function Study() {
     setPending(null);
     setCorrected(false);
     setFlash(false);
+    setIntervalNote(null);
 
     const idx  = currentIndexRef.current;
     let   q    = queueRef.current;
@@ -279,11 +299,10 @@ export default function Study() {
     item: QueuedWord, usedMode: FsrsMode, kind: 'mc' | 'typed',
     result: MatchResult, responseMs: number | null,
   ) => {
-    const grade = kind === 'mc'
-      ? determineGrade('mc', result)
-      : adjustGradeBySpeed(
-          determineGrade(usedMode, result), usedMode, responseMs ?? Infinity, item.word.original.length,
-        );
+    const grade = gradeForAnswer(
+      kind === 'mc' ? 'mc' : usedMode, result, responseMs,
+      typedLength(item.word, usedMode), detectInputMedium(),
+    );
 
     if (result === 'almost') tallyRef.current.almost++;
     if (responseMs !== null) tallyRef.current.responseTimes.push(responseMs);
@@ -322,13 +341,27 @@ export default function Study() {
     const responseMs = Date.now() - cardStartTimeRef.current;
 
     if (result === 'correct') {
-      // Geen feedbackscherm: het veld kleurt goud en de volgende kaart komt.
+      // Geen feedbackscherm: het veld kleurt kort goud en er komt een briefje op
+      // met wanneer dit woord terugkomt — hoe vlotter je was, hoe verder weg.
+      const grade = gradeForAnswer(
+        usedMode, result, responseMs, typedLength(currentItem.word, usedMode), detectInputMedium(),
+      );
       setFlash(true);
-      setTimeout(() => commit(currentItem, usedMode, 'typed', result, responseMs), FLASH_MS);
+      setTimeout(() => setFlash(false), FLASH_MS);
+
+      // Luisteren is een kennismaking: dat woord komt verderop in deze sessie
+      // terug als typoefening, dus een belofte in dagen zou er onwaar zijn.
+      if (usedMode !== 'listen_type') {
+        const existing = fsrsStates[currentItem.cardId]?.[usedMode] ?? emptyFsrsState();
+        const days     = previewInterval(existing, grade, today);
+        setIntervalNote({ text: intervalShort(days), tone: intervalTone(days) });
+      }
+
+      setTimeout(() => commit(currentItem, usedMode, 'typed', result, responseMs), HOLD_MS);
       return;
     }
     pause(currentItem, usedMode, 'typed', typedAnswer, result, responseMs);
-  }, [currentItem, typedAnswer, effectiveMode, evaluateTyped, commit, pause]);
+  }, [currentItem, typedAnswer, effectiveMode, evaluateTyped, commit, pause, fsrsStates, today]);
 
   const handleSkip = useCallback(() => {
     if (!currentItem) return;
@@ -465,9 +498,11 @@ export default function Study() {
 
   if (pending) {
     const existing = fsrsStates[pending.item.cardId]?.[pending.usedMode] ?? emptyFsrsState();
-    const grade = pending.kind === 'mc'
-      ? determineGrade('mc', pending.result)
-      : determineGrade(pending.usedMode, pending.result);
+    const grade = gradeForAnswer(
+      pending.kind === 'mc' ? 'mc' : pending.usedMode,
+      pending.result, pending.responseMs,
+      typedLength(pending.item.word, pending.usedMode), detectInputMedium(),
+    );
 
     return (
       <Screen>
@@ -521,6 +556,7 @@ export default function Study() {
           onSkip={handleSkip}
           onEdit={() => setEditOpen(true)}
           flash={flash}
+          intervalNote={intervalNote}
         />
       )}
     </Screen>

@@ -58,6 +58,22 @@
 
 }
 
+/*
+ * Beweging is hier nooit versiering, dus bij reduced motion vervalt alleen de
+ * aanloop — niet het signaal. De goudflits blijft staan en houdt zijn kleur;
+ * hij verschijnt alleen zonder overgang, net als een snel antwoord al deed.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Room for the iOS status bar; the app is one vertical scroll with nothing fixed. */
 .screen-safe-top {
   padding-top: calc(20px + env(safe-area-inset-top));

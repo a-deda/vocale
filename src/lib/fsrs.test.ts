@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildSession, FSRS_MODES } from '@/lib/fsrs';
+import {
+  buildSession, FSRS_MODES, GRADE, gradeForAnswer, initialStability, intervalShort,
+  intervalTone, previewInterval, speedThreshold, updateDifficulty, W,
+} from '@/lib/fsrs';
+import { answerLength } from '@/lib/translation-utils';
 import type { FsrsMode, FsrsState } from '@/lib/fsrs';
 
 const TODAY = '2026-06-15';
@@ -142,5 +146,167 @@ describe('buildSession — invariant over willekeurige mix', () => {
     const items = buildSession({ a: { self_assess: state(TODAY) } }, TODAY, 20);
     expect(items).toHaveLength(1);
     expect(items[0].mode).toBe('typed_nl_it');
+  });
+});
+
+describe('speedThreshold — herinnertijd plus tiktijd', () => {
+  it('zonder tekens blijft alleen de herinnertijd over, op elk medium', () => {
+    expect(speedThreshold(0, 'keyboard')).toBe(4000);
+    expect(speedThreshold(0, 'touch')).toBe(4000);
+  });
+
+  it('glas krijgt meer tijd per teken dan een toetsenbord', () => {
+    expect(speedThreshold(10, 'touch')).toBeGreaterThan(speedThreshold(10, 'keyboard'));
+  });
+
+  it('een langer antwoord krijgt een ruimer budget', () => {
+    expect(speedThreshold(20, 'keyboard')).toBeGreaterThan(speedThreshold(5, 'keyboard'));
+  });
+});
+
+describe('gradeForAnswer — snelheid schaalt vloeiend tussen goed en moeiteloos', () => {
+  // 'parlare' telt 7 tekens.
+  const WORD = 'parlare'.length;
+  const T    = speedThreshold(WORD, 'keyboard');
+
+  it('de uitersten komen exact overeen met de oude hele grades', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', 0.5 * T, WORD, 'keyboard')).toBe(GRADE.EASY);
+    expect(gradeForAnswer('typed_nl_it', 'correct', 1.5 * T, WORD, 'keyboard')).toBe(GRADE.GOOD);
+  });
+
+  it('op de ijkdrempel zit je precies halverwege', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', T, WORD, 'keyboard')).toBeCloseTo(3.5, 10);
+  });
+
+  it('loopt monotoon af naarmate je trager antwoordt', () => {
+    const grades = [0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6]
+      .map(k => gradeForAnswer('typed_nl_it', 'correct', k * T, WORD, 'keyboard'));
+    for (let i = 1; i < grades.length; i++) {
+      expect(grades[i]).toBeLessThanOrEqual(grades[i - 1]);
+    }
+    expect(grades[0]).toBe(GRADE.EASY);
+    expect(grades[grades.length - 1]).toBe(GRADE.GOOD);
+  });
+
+  it('dezelfde tijd telt op glas gunstiger dan op een toetsenbord', () => {
+    const ms = 8000;
+    expect(gradeForAnswer('typed_nl_it', 'correct', ms, WORD, 'touch'))
+      .toBeGreaterThan(gradeForAnswer('typed_nl_it', 'correct', ms, WORD, 'keyboard'));
+  });
+
+  it('blijft altijd binnen goed en moeiteloos', () => {
+    for (const ms of [0, 1, 100, 5000, 6100, 20000, 1e9]) {
+      const g = gradeForAnswer('typed_nl_it', 'correct', ms, WORD, 'keyboard');
+      expect(g).toBeGreaterThanOrEqual(GRADE.GOOD);
+      expect(g).toBeLessThanOrEqual(GRADE.EASY);
+    }
+  });
+
+  it('een langer antwoord krijgt een ruimere drempel', () => {
+    const long = 'la disoccupazione'.length;
+    expect(gradeForAnswer('typed_nl_it', 'correct', 9000, long, 'keyboard'))
+      .toBeGreaterThan(gradeForAnswer('typed_nl_it', 'correct', 9000, WORD, 'keyboard'));
+  });
+
+  it('snelheid redt een bijna- of fout antwoord niet', () => {
+    expect(gradeForAnswer('typed_nl_it', 'almost', 100, WORD, 'keyboard')).toBe(GRADE.HARD);
+    expect(gradeForAnswer('typed_nl_it', 'wrong', 100, WORD, 'keyboard')).toBe(GRADE.FORGOT);
+  });
+
+  it('zonder gemeten tijd is er geen verhoging', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', null, WORD, 'keyboard')).toBe(GRADE.GOOD);
+  });
+
+  it('meerkeuze wordt nooit verhoogd, hoe snel ook', () => {
+    expect(gradeForAnswer('mc', 'correct', 10, WORD, 'keyboard')).toBe(GRADE.GOOD);
+    expect(gradeForAnswer('mc', 'wrong', 10, WORD, 'keyboard')).toBe(GRADE.FORGOT);
+  });
+});
+
+describe('answerLength — wat je werkelijk moet typen', () => {
+  it('neemt de kortste betekenis, niet het hele veld', () => {
+    // "praten; kletsen" is 15 tekens, maar je typt er 6.
+    expect(answerLength('praten; kletsen')).toBe(6);
+  });
+
+  it('telt annotaties niet mee', () => {
+    expect(answerLength('il libro (s.m.)')).toBe('il libro'.length);
+  });
+
+  it('werkt bij een enkele betekenis', () => {
+    expect(answerLength('parlare')).toBe(7);
+  });
+
+  it('valt terug op een leeg veld zonder te klappen', () => {
+    expect(answerLength('')).toBe(0);
+    expect(answerLength('   ')).toBe(0);
+  });
+});
+
+describe('intervalShort en intervalTone', () => {
+  it('kiest de eenheid op dezelfde grenzen als de lange vorm', () => {
+    expect(intervalShort(6)).toBe('+6 d');
+    expect(intervalShort(13)).toBe('+13 d');
+    expect(intervalShort(14)).toBe('+2 wk');
+    expect(intervalShort(28)).toBe('+4 wk');
+    expect(intervalShort(119)).toBe('+17 wk');
+    expect(intervalShort(120)).toBe('+4 mnd');
+  });
+
+  it('loopt van kleurloos naar volledig goud op de verankerdrempel', () => {
+    expect(intervalTone(1)).toBe(0);
+    expect(intervalTone(90)).toBeCloseTo(1, 10);
+    expect(intervalTone(365)).toBe(1); // geklemd
+  });
+
+  it('stijgt monotoon met het interval', () => {
+    const tones = [1, 3, 7, 21, 45, 90].map(intervalTone);
+    for (let i = 1; i < tones.length; i++) {
+      expect(tones[i]).toBeGreaterThan(tones[i - 1]);
+    }
+  });
+});
+
+describe('de continue schaal past in FSRS', () => {
+  const MATURE: FsrsState = {
+    stability: 10, difficulty: 5,
+    dueDate: '2026-06-15', lastReviewedAt: '2026-06-05T10:00:00.000Z',
+  };
+
+  it('een hele 3 en een hele 4 geven nog steeds de bekende intervallen', () => {
+    // Deze twee getallen zijn met de hand uit de formules gerekend; ze bewaken
+    // dat de interpolatie de uitersten niet verschoven heeft.
+    expect(previewInterval(MATURE, GRADE.GOOD, TODAY)).toBe(33);
+    expect(previewInterval(MATURE, GRADE.EASY, TODAY)).toBe(88);
+  });
+
+  it('gebroken grades liggen ertussen en lopen monotoon op', () => {
+    const days = [3, 3.25, 3.5, 3.75, 4].map(g => previewInterval(MATURE, g, TODAY));
+    for (let i = 1; i < days.length; i++) {
+      expect(days[i]).toBeGreaterThan(days[i - 1]);
+    }
+    expect(days[0]).toBe(33);
+    expect(days[days.length - 1]).toBe(88);
+  });
+
+  it('een gloednieuw woord krijgt een echte stabiliteit, geen NaN', () => {
+    // initialStability leest W[grade-1]; zonder interpolatie zou W[2.4]
+    // undefined zijn en de kaart met NaN in de database belanden.
+    for (const g of [3, 3.3, 3.5, 3.75, 4]) {
+      const s = initialStability(g);
+      expect(Number.isFinite(s)).toBe(true);
+      expect(s).toBeGreaterThan(0);
+    }
+    expect(initialStability(3)).toBeCloseTo(W[2], 10);
+    expect(initialStability(4)).toBeCloseTo(W[3], 10);
+    expect(initialStability(3.5)).toBeCloseTo((W[2] + W[3]) / 2, 10);
+  });
+
+  it('moeilijkheid blijft bij gebroken grades binnen de grenzen', () => {
+    for (const g of [3, 3.4, 3.9, 4]) {
+      const d = updateDifficulty(5, g);
+      expect(d).toBeGreaterThanOrEqual(1);
+      expect(d).toBeLessThanOrEqual(10);
+    }
   });
 });

@@ -23,7 +23,10 @@ export function AccentRow({ onInsert }: { onInsert: (char: string) => void }) {
 }
 
 interface TypedInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  /** Laat het veld 200 ms goud oplichten — het enige feedbackmoment bij goed. */
+  /**
+   * Laat het veld goud oplichten bij een goed antwoord. Wélke beoordeling het
+   * werd, zegt het briefje erop; de flits zegt alleen dát het goed was.
+   */
   flash?: boolean;
 }
 
@@ -42,11 +45,14 @@ export const TypedInput = forwardRef<HTMLInputElement, TypedInputProps>(
       spellCheck={false}
       className={
         `mt-4 h-16 w-full rounded-card px-5 text-[26px] font-medium tracking-[-0.01em] ` +
-        `text-ink caret-[#D19C1D] outline-none placeholder:text-steel ` +
+        `text-ink outline-none placeholder:text-steel ` +
         `focus:shadow-[inset_0_0_0_2px_#D19C1D] ` +
-        `${flash ? 'bg-active' : 'bg-card'} ${className}`
+        // De caret is zelf goud en zou tijdens de flits in het vlak verdwijnen.
+        `${flash ? 'bg-active caret-transparent' : 'bg-card caret-[#D19C1D]'} ${className}`
       }
-      style={{ transition: flash ? 'background-color 200ms cubic-bezier(0.2,0,0.2,1)' : undefined }}
+      style={{
+        transition: flash ? 'background-color var(--dur-flash) var(--ease-standard)' : undefined,
+      }}
     />
   ),
 );
