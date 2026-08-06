@@ -5,7 +5,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { ANCHOR_DAYS } from '@/lib/fsrs';
 import { Data, Screen, Wordmark } from '@/components/vocale/Primitives';
 
-/** Sessiegroottes waaruit je kunt kiezen; de sessie is de eenheid, niet een dagdoel. */
+/**
+ * Waaruit je kunt kiezen. Dit is nu werkelijk een dagdoel: het begrenst
+ * herhalingen plus nieuwe woorden samen, over alle sessies van één dag.
+ */
 const SESSION_SIZES = [12, 18, 24, 32];
 
 /**
@@ -82,7 +85,7 @@ export default function Menu() {
         <Item label="Statistieken" onClick={() => navigate('/statistieken')} />
 
         <Item
-          label="Sessiegrootte"
+          label="Dagdoel"
           value={String(stats.dailyGoal)}
           onClick={() => setSizeOpen(open => !open)}
         />

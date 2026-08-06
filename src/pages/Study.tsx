@@ -9,11 +9,11 @@ import { detectInputMedium } from '@/lib/input-medium';
 import type { FsrsGrade, FsrsMode, FsrsState, QueueItem } from '@/lib/fsrs';
 import { fuzzyMatch, fuzzyMatchWithAlternatives, generateMCOptions } from '@/lib/srs';
 import { findSynonymOriginals } from '@/lib/synonyms';
-import { answerLength, splitTranslations, stripAnnotations } from '@/lib/translation-utils';
-import { buildOverview, countStates } from '@/lib/vocabulary';
+import { splitTranslations, stripAnnotations } from '@/lib/translation-utils';
+import { buildOverview, countStates, studiedToday } from '@/lib/vocabulary';
 import { localDateKey } from '@/lib/store';
 import { Word } from '@/types/word';
-import { Screen, ScreenHeader, SessionHeader } from '@/components/vocale/Primitives';
+import { Button, Screen, ScreenHeader, SessionHeader } from '@/components/vocale/Primitives';
 import ProductionCard from '@/components/study/ProductionCard';
 import ListeningCard from '@/components/study/ListeningCard';
 import IntroCard from '@/components/study/IntroCard';
@@ -24,14 +24,6 @@ import type { SessionTally } from '@/components/study/SessionEnd';
 
 type MatchResult = 'correct' | 'almost' | 'wrong';
 type QueuedWord  = QueueItem & { word: Word };
-
-/**
- * Hoeveel tekens moet je in deze modus werkelijk intypen? Bij IT→NL is dat de
- * vertaling, niet het Italiaans — die twee werden eerder door elkaar gehaald.
- */
-function typedLength(word: Word, usedMode: FsrsMode): number {
-  return answerLength(usedMode === 'typed_it_nl' ? word.translation : word.original);
-}
 
 /** Minimaal aantal kaarten tussen een kennismaking en de getypte herhaling. */
 const MIN_SPACING = 3;
@@ -57,6 +49,18 @@ export default function Study() {
   const [initialized, setInitialized]   = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  /** Doorgaan voorbij het dagdoel, als de gebruiker daar zelf voor kiest. */
+  const [ignoreDailyGoal, setIgnoreDailyGoal] = useState(false);
+
+  const doneToday = useMemo(() => studiedToday(reviewLogs, today), [reviewLogs, today]);
+  /**
+   * Wat er vandaag nog in past. Zonder deze aftrek geeft elke nieuwe sessie het
+   * volle dagdoel opnieuw, en kon je eindeloos nieuwe woorden blijven halen.
+   */
+  const sessionBudget = ignoreDailyGoal
+    ? stats.dailyGoal
+    : Math.max(0, stats.dailyGoal - doneToday);
+
   useEffect(() => {
     if (initialized || words.length === 0) return;
 
@@ -64,7 +68,7 @@ export default function Study() {
     for (const w of words) allCardStates[w.id] = fsrsStates[w.id] ?? {};
 
     const wordMap = new Map(words.map(w => [w.id, w]));
-    const resolved = buildSession(allCardStates, today, stats.dailyGoal)
+    const resolved = buildSession(allCardStates, today, sessionBudget)
       .map(item => {
         const word = wordMap.get(item.cardId);
         return word ? { ...item, word } : null;
@@ -73,7 +77,10 @@ export default function Study() {
 
     setQueue(resolved);
     setInitialized(true);
-  }, [words, fsrsStates, initialized, today, stats.dailyGoal]);
+  }, [words, fsrsStates, initialized, today, sessionBudget]);
+
+  /** Opnieuw bouwen zodra de gebruiker het dagdoel loslaat of nieuw werk wil. */
+  const rebuild = useCallback(() => setInitialized(false), []);
 
   // ─── UI-state ───────────────────────────────────────────────────────────
   const [typedAnswer, setTypedAnswer] = useState('');
@@ -91,12 +98,15 @@ export default function Study() {
     input:      string;
     result:     MatchResult;
     responseMs: number | null;
+    recallMs:   number | null;
   } | null>(null);
   const [corrected, setCorrected] = useState(false);
 
   const [pendingPool, setPendingPool] = useState<{ item: QueuedWord; addedAtIndex: number }[]>([]);
 
   const cardStartTimeRef = useRef(Date.now());
+  /** Wanneer de eerste toets viel; dát is het einde van het herinneren. */
+  const firstKeyAtRef    = useRef<number | null>(null);
   const sessionStartRef  = useRef(Date.now());
   const currentIndexRef  = useRef(currentIndex);
   const queueRef         = useRef(queue);
@@ -104,6 +114,8 @@ export default function Study() {
   const retriedCardsRef  = useRef(new Set<string>());
   /** Per uniek woord het laatste resultaat, zodat de sessietellers op elkaar kloppen. */
   const wordResultsRef   = useRef(new Map<string, boolean>());
+  /** Woorden die deze sessie voor het eerst zijn geïntroduceerd. */
+  const introducedRef    = useRef(new Set<string>());
   const sessionSavedRef  = useRef(false);
 
   /** Wat deze sessie opleverde; de eindkaart leest hieruit. */
@@ -146,10 +158,33 @@ export default function Study() {
 
   const currentItem = queue[currentIndex];
   const mode: FsrsMode = currentItem ? effectiveMode(currentItem) : 'typed_nl_it';
+  /** Per kaart afgeleid, dus bestand tegen een wachtrij die tijdens de sessie groeit. */
+  const phase: 'herhalen' | 'nieuw' = currentItem?.dueDate ? 'herhalen' : 'nieuw';
 
   useEffect(() => {
-    if (currentItem) cardStartTimeRef.current = Date.now();
+    if (currentItem) {
+      cardStartTimeRef.current = Date.now();
+      firstKeyAtRef.current    = null;
+    }
   }, [currentItem?.cardId, mode]);
+
+  /**
+   * De klok voor het herinneren stopt bij de eerste aanslag, niet bij Enter.
+   * Wat daarna gebeurt is tikken, en dat zegt niets over hoe goed je het woord
+   * kent. `responseMs` blijft wél tot Enter lopen en wordt zo bewaard.
+   */
+  const handleTypeAnswer = useCallback((value: string) => {
+    if (firstKeyAtRef.current === null && value.length > 0) {
+      firstKeyAtRef.current = Date.now();
+    }
+    setTypedAnswer(value);
+  }, []);
+
+  /** Denktijd in ms, of null als er niets getypt is. */
+  const recallSoFar = useCallback(
+    () => (firstKeyAtRef.current === null ? null : firstKeyAtRef.current - cardStartTimeRef.current),
+    [],
+  );
 
   // ─── Betekenis en opties per kaart ──────────────────────────────────────
   const activeMeaning = useMemo(() => {
@@ -169,7 +204,8 @@ export default function Study() {
   // ─── Wegschrijven ───────────────────────────────────────────────────────
 
   const persistReview = useCallback(async (
-    item: QueuedWord, grade: number, usedMode: FsrsMode, responseMs: number | null,
+    item: QueuedWord, grade: number, usedMode: FsrsMode,
+    responseMs: number | null, recallMs: number | null,
   ) => {
     const existing = fsrsStates[item.cardId]?.[usedMode] ?? emptyFsrsState();
     const { newState, logPartial } = reviewCard(existing, grade, today);
@@ -182,7 +218,8 @@ export default function Study() {
     await upsertFsrsState(item.cardId, usedMode, newState);
     await addReviewLog({
       ...logPartial,
-      cardId: item.cardId, mode: usedMode, responseMs, inputMedium: detectInputMedium(),
+      cardId: item.cardId, mode: usedMode, responseMs, recallMs,
+      inputMedium: detectInputMedium(),
     });
     await updateStreak();
 
@@ -219,7 +256,8 @@ export default function Study() {
 
     const { anchored, almost, responseTimes } = tallyRef.current;
     return {
-      words:    results.size,
+      words:      results.size,
+      introduced: introducedRef.current.size,
       anchored,
       almost,
       avgResponseMs: responseTimes.length > 0
@@ -297,23 +335,23 @@ export default function Study() {
 
   const commit = useCallback((
     item: QueuedWord, usedMode: FsrsMode, kind: 'mc' | 'typed',
-    result: MatchResult, responseMs: number | null,
+    result: MatchResult, responseMs: number | null, recallMs: number | null,
   ) => {
     // Vóór het wegschrijven kijken: is dit woord vandaag al langsgekomen?
     const repeat = wordResultsRef.current.has(item.cardId);
     const grade = gradeForAnswer(
-      kind === 'mc' ? 'mc' : usedMode, result, responseMs,
-      typedLength(item.word, usedMode), detectInputMedium(), repeat,
+      kind === 'mc' ? 'mc' : usedMode, result, recallMs, detectInputMedium(), repeat,
     );
 
     if (result === 'almost') tallyRef.current.almost++;
     if (responseMs !== null) tallyRef.current.responseTimes.push(responseMs);
 
-    void persistReview(item, grade, usedMode, responseMs);
+    void persistReview(item, grade, usedMode, responseMs, recallMs);
     wordResultsRef.current.set(item.cardId, result === 'correct');
 
     // Een geslaagde kennismaking wordt in dezelfde sessie omgezet in productie.
     const introduced = usedMode === 'mc' || usedMode === 'listen_type';
+    if (introduced) introducedRef.current.add(item.cardId);
     if (introduced && result === 'correct') {
       queueFollowUp({ cardId: item.cardId, mode: 'typed_nl_it', dueDate: null, word: item.word });
     }
@@ -330,9 +368,9 @@ export default function Study() {
 
   const pause = useCallback((
     item: QueuedWord, usedMode: FsrsMode, kind: 'mc' | 'typed',
-    input: string, result: MatchResult, responseMs: number | null,
+    input: string, result: MatchResult, responseMs: number | null, recallMs: number | null,
   ) => {
-    setPending({ item, usedMode, kind, input, result, responseMs });
+    setPending({ item, usedMode, kind, input, result, responseMs, recallMs });
   }, []);
 
   const handleSubmitAnswer = useCallback(() => {
@@ -341,13 +379,14 @@ export default function Study() {
     const usedMode   = effectiveMode(currentItem);
     const result     = evaluateTyped(typedAnswer, currentItem.word, usedMode);
     const responseMs = Date.now() - cardStartTimeRef.current;
+    const recall     = recallSoFar();
 
     if (result === 'correct') {
       // Geen feedbackscherm: het veld kleurt kort goud en er komt een briefje op
       // met wanneer dit woord terugkomt — hoe vlotter je was, hoe verder weg.
       const grade = gradeForAnswer(
-        usedMode, result, responseMs, typedLength(currentItem.word, usedMode),
-        detectInputMedium(), wordResultsRef.current.has(currentItem.cardId),
+        usedMode, result, recall, detectInputMedium(),
+        wordResultsRef.current.has(currentItem.cardId),
       );
       setFlash(true);
       setTimeout(() => setFlash(false), FLASH_MS);
@@ -360,15 +399,18 @@ export default function Study() {
         setIntervalNote({ text: intervalShort(days), tone: intervalTone(days) });
       }
 
-      setTimeout(() => commit(currentItem, usedMode, 'typed', result, responseMs), HOLD_MS);
+      setTimeout(
+        () => commit(currentItem, usedMode, 'typed', result, responseMs, recall), HOLD_MS,
+      );
       return;
     }
-    pause(currentItem, usedMode, 'typed', typedAnswer, result, responseMs);
-  }, [currentItem, typedAnswer, effectiveMode, evaluateTyped, commit, pause, fsrsStates, today]);
+    pause(currentItem, usedMode, 'typed', typedAnswer, result, responseMs, recall);
+  }, [currentItem, typedAnswer, effectiveMode, evaluateTyped, commit, pause,
+      recallSoFar, fsrsStates, today]);
 
   const handleSkip = useCallback(() => {
     if (!currentItem) return;
-    pause(currentItem, effectiveMode(currentItem), 'typed', '', 'wrong', null);
+    pause(currentItem, effectiveMode(currentItem), 'typed', '', 'wrong', null, null);
   }, [currentItem, effectiveMode, pause]);
 
   const mcCorrect = activeMeaning.replace(/\s*\([^)]+\)/g, '').trim();
@@ -379,20 +421,22 @@ export default function Study() {
 
     const isCorrect = selected === activeMeaningRef.current.replace(/\s*\([^)]+\)/g, '').trim();
     if (isCorrect) {
-      setTimeout(() => commit(currentItem, currentItem.mode, 'mc', 'correct', null), 700);
+      setTimeout(() => commit(currentItem, currentItem.mode, 'mc', 'correct', null, null), 700);
       return;
     }
-    setTimeout(() => pause(currentItem, currentItem.mode, 'mc', selected, 'wrong', null), 700);
+    setTimeout(() => pause(currentItem, currentItem.mode, 'mc', selected, 'wrong', null, null), 700);
   }, [currentItem, selectedMC, commit, pause]);
 
   const handleContinue = useCallback(() => {
     if (!pending) return;
-    commit(pending.item, pending.usedMode, pending.kind, pending.result, pending.responseMs);
+    commit(pending.item, pending.usedMode, pending.kind, pending.result,
+      pending.responseMs, pending.recallMs);
   }, [pending, commit]);
 
   const handleMarkCorrect = useCallback(() => {
     if (!pending) return;
-    commit(pending.item, pending.usedMode, pending.kind, 'correct', pending.responseMs);
+    commit(pending.item, pending.usedMode, pending.kind, 'correct',
+      pending.responseMs, pending.recallMs);
   }, [pending, commit]);
 
   /** Sla een correctie op en herbeoordeel het lopende antwoord meteen. */
@@ -424,18 +468,34 @@ export default function Study() {
     [words, fsrsStates, sessions, reviewLogs, today],
   );
 
-  /** Wat er ná deze sessie nog te doen valt; alles wat due was is nu vooruitgeschoven. */
-  const aheadCount = useMemo(
-    () => buildSession(
+  /**
+   * Wat een volgende ronde vandaag nog zou opleveren, gesplitst. Nieuwe woorden
+   * zijn het normale vervolg zodra de herhalingen op zijn — dat is geen
+   * vooruitwerken, dat is gewoon iets nieuws leren.
+   */
+  const nextRound = useMemo(() => {
+    const plan = buildSession(
+      Object.fromEntries(words.map(w => [w.id, fsrsStates[w.id] ?? {}])),
+      today,
+      sessionBudget,
+    );
+    const reviews = plan.filter(i => i.dueDate !== null).length;
+    return { total: plan.length, reviews, intro: plan.length - reviews };
+  }, [words, fsrsStates, today, sessionBudget]);
+
+  /** Ligt er nog werk dat alleen het dagdoel tegenhoudt? */
+  const blockedByGoal = useMemo(() => {
+    if (sessionBudget > 0) return false;
+    return buildSession(
       Object.fromEntries(words.map(w => [w.id, fsrsStates[w.id] ?? {}])),
       today,
       stats.dailyGoal,
-    ).length,
-    [words, fsrsStates, today, stats.dailyGoal],
-  );
+    ).length > 0;
+  }, [words, fsrsStates, today, sessionBudget, stats.dailyGoal]);
 
   const startAnotherRound = useCallback(() => {
     wordResultsRef.current.clear();
+    introducedRef.current.clear();
     retriedCardsRef.current.clear();
     tallyRef.current = { anchored: [], almost: 0, responseTimes: [] };
     sessionSavedRef.current = false;
@@ -444,17 +504,37 @@ export default function Study() {
     setTally(null);
     setPendingPool([]);
     setCurrentIndex(0);
-    setInitialized(false);
-  }, []);
+    rebuild();
+  }, [rebuild]);
+
+  /** Het dagdoel loslaten en meteen opnieuw bouwen. */
+  const continueAnyway = useCallback(() => {
+    setIgnoreDailyGoal(true);
+    startAnotherRound();
+  }, [startAnotherRound]);
 
   if (initialized && queue.length === 0) {
     return (
       <Screen>
         <ScreenHeader onMenu={() => navigate('/menu')} />
         <div className="text-[26px] font-semibold leading-[1.25] tracking-[-0.02em] text-ink">
-          Niets vervalt vandaag.
-          {overview.dueTomorrow > 0 && <><br />Morgen vervallen er {overview.dueTomorrow}.</>}
+          {blockedByGoal
+            ? `Je dagdoel van ${stats.dailyGoal} is gehaald.`
+            : 'Niets te herhalen vandaag.'}
+          {!blockedByGoal && overview.dueTomorrow > 0 && (
+            <><br />Morgen komen er {overview.dueTomorrow} terug.</>
+          )}
         </div>
+        {/*
+          Geen "nieuwe woorden"-knop hier: stond er nog iets nieuws klaar, dan
+          was de wachtrij niet leeg geweest. Alleen het dagdoel kan werk
+          tegenhouden dat er wél is.
+        */}
+        {blockedByGoal && (
+          <Button variant="quiet" className="mt-[26px]" onClick={continueAnyway}>
+            Toch doorgaan
+          </Button>
+        )}
       </Screen>
     );
   }
@@ -468,9 +548,12 @@ export default function Study() {
           counts={overview.counts}
           lapsedBefore={lapsedBeforeRef.current ?? overview.counts.lapsed}
           dueTomorrow={overview.dueTomorrow}
-          aheadCount={aheadCount}
+          newAvailable={nextRound.intro}
+          blockedByGoal={blockedByGoal}
+          dailyGoal={stats.dailyGoal}
           onClose={() => navigate('/')}
-          onWorkAhead={startAnotherRound}
+          onMoreNew={startAnotherRound}
+          onContinueAnyway={continueAnyway}
         />
       </Screen>
     );
@@ -503,14 +586,18 @@ export default function Study() {
     const existing = fsrsStates[pending.item.cardId]?.[pending.usedMode] ?? emptyFsrsState();
     const grade = gradeForAnswer(
       pending.kind === 'mc' ? 'mc' : pending.usedMode,
-      pending.result, pending.responseMs,
-      typedLength(pending.item.word, pending.usedMode), detectInputMedium(),
+      pending.result, pending.recallMs, detectInputMedium(),
       wordResultsRef.current.has(pending.item.cardId),
     );
 
     return (
       <Screen>
-        <SessionHeader onBack={() => navigate('/')} position={currentIndex + 1} total={queue.length} />
+        <SessionHeader
+          onBack={() => navigate('/')}
+          phase={phase}
+          position={currentIndex + 1}
+          total={queue.length}
+        />
         <FeedbackCard
           word={pending.item.word}
           input={pending.input}
@@ -529,7 +616,12 @@ export default function Study() {
 
   return (
     <Screen>
-      <SessionHeader onBack={() => navigate('/')} position={currentIndex + 1} total={queue.length} />
+      <SessionHeader
+          onBack={() => navigate('/')}
+          phase={phase}
+          position={currentIndex + 1}
+          total={queue.length}
+        />
 
       {mode === 'mc' ? (
         <IntroCard
@@ -544,7 +636,7 @@ export default function Study() {
         <ListeningCard
           word={currentItem.word}
           typedAnswer={typedAnswer}
-          onTypeAnswer={setTypedAnswer}
+          onTypeAnswer={handleTypeAnswer}
           onSubmit={handleSubmitAnswer}
           onSkip={handleSkip}
           onMute={muteListening}
@@ -555,12 +647,13 @@ export default function Study() {
           word={mode === 'typed_nl_it' ? displayWord : currentItem.word}
           direction={mode === 'typed_it_nl' ? 'it_nl' : 'nl_it'}
           typedAnswer={typedAnswer}
-          onTypeAnswer={setTypedAnswer}
+          onTypeAnswer={handleTypeAnswer}
           onSubmit={handleSubmitAnswer}
           onSkip={handleSkip}
           onEdit={() => setEditOpen(true)}
           flash={flash}
           intervalNote={intervalNote}
+          firstTime={!currentItem.dueDate}
         />
       )}
     </Screen>

@@ -67,7 +67,10 @@ vi.mock('@/integrations/supabase/client', () => ({ supabase: {} }));
 // Maak de wachtrij deterministisch; laat de rest van fsrs (grading) echt.
 vi.mock('@/lib/fsrs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/fsrs')>();
-  return { ...actual, buildSession: () => H.state.queue };
+  return {
+    ...actual,
+    buildSession: () => H.state.queue,
+  };
 });
 
 import Study from '@/pages/Study';
@@ -247,14 +250,15 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
   /**
    * Bij een goed antwoord toont de app geen feedbackscherm, dus het briefje op
    * het veld is de enige plek waar staat wanneer het woord terugkomt.
-   * 'parlare' telt 7 tekens; op een toetsenbord is de ijkdrempel dus
-   * 4000 + 7 x 180 = 5260 ms. De testomgeving mockt matchMedia op false, dus
-   * alles leest als toetsenbord.
+   *
+   * `answerAfter` spoelt de klok vooruit vóór de eerste toets, en dat is precies
+   * wat er gemeten wordt: de denktijd. Die loopt van 500 ms (moeiteloos) tot
+   * 4000 ms (aarzelen). De testomgeving mockt matchMedia op false, dus alles
+   * leest als toetsenbord.
    */
   describe('het briefje toont wanneer het woord terugkomt', () => {
-    const T = 5260;
 
-    /** Beantwoordt goed na `elapsed` ms en geeft de tekst van het briefje terug. */
+    /** Denkt `elapsed` ms na, typt dan goed, en geeft de tekst van het briefje. */
     function answerAfter(elapsed: number): string | null {
       // Zelfstandig aanroepbaar: ruim een eventuele vorige render eerst op.
       cleanup();
@@ -291,8 +295,8 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     it('belooft een langere periode naarmate je sneller antwoordt', () => {
       vi.useFakeTimers();
       try {
-        const snel  = answerAfter(0.5 * T)!;
-        const traag = answerAfter(1.5 * T)!;
+        const snel  = answerAfter(300)!;
+        const traag = answerAfter(3500)!;
         expect(toDays(snel)).toBeGreaterThan(toDays(traag));
       } finally {
         vi.useRealTimers();
@@ -328,9 +332,8 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     it('slaat de gebroken beoordeling en het medium op', async () => {
       vi.useFakeTimers();
       try {
-        // 1260 ms tikken (7 tekens x 180) plus 4500 ms denken; dat is precies
-        // halverwege de denkband van 1 tot 8 seconden.
-        answerAfter(1260 + 4500);
+        // Precies halverwege de denkband van 500 tot 4000 ms.
+        answerAfter(2250);
         await act(async () => { await vi.advanceTimersByTimeAsync(1200); });
 
         const log = H.state.addReviewLog.mock.calls[0][0];
@@ -341,6 +344,16 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
         vi.useRealTimers();
       }
     });
+  });
+});
+
+describe('Study – het lege scherm', () => {
+  it('spreekt van herhalen, niet van vervallen, en biedt geen vooruitwerken', () => {
+    H.state.queue = [];
+    renderStudy();
+
+    expect(screen.getByText(/Niets te herhalen vandaag/)).toBeInTheDocument();
+    expect(screen.queryByText(/Vooruitwerken/)).not.toBeInTheDocument();
   });
 });
 

@@ -19,10 +19,13 @@ interface ProductionCardProps {
   flash:        boolean;
   /** Wanneer dit woord terugkomt ("+4 wk") plus de kleursterkte. Alleen bij goed. */
   intervalNote: { text: string; tone: number } | null;
+  /** Eerste keer dat dit woord getypt wordt, vlak na de kennismaking. */
+  firstTime:    boolean;
 }
 
 export default function ProductionCard({
   word, direction, typedAnswer, onTypeAnswer, onSubmit, onSkip, onEdit, flash, intervalNote,
+  firstTime,
 }: ProductionCardProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -51,7 +54,13 @@ export default function ProductionCard({
   return (
     <>
       <PromptCard
-        label={word.partOfSpeech || (toItalian ? 'vertaal naar het Italiaans' : 'vertaal naar het Nederlands')}
+        label={
+          // Een net geïntroduceerd woord zag er tot nu toe hetzelfde uit als een
+          // herhaling; dat verschil hoort te blijken.
+          firstTime
+            ? 'nieuw woord · typ het'
+            : word.partOfSpeech || (toItalian ? 'vertaal naar het Italiaans' : 'vertaal naar het Nederlands')
+        }
         requirement={toItalian && requiresArticle(word.original) ? 'met lidwoord' : undefined}
       >
         {toItalian ? (

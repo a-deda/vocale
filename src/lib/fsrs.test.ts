@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildSession, emptyFsrsState, FSRS_MODES, GRADE, gradeForAnswer, initialStability,
-  intervalShort, intervalTone, previewInterval, recallMs, updateDifficulty, W,
+  intervalShort, intervalTone, previewInterval, updateDifficulty, W,
 } from '@/lib/fsrs';
-import { answerLength } from '@/lib/translation-utils';
 import type { FsrsMode, FsrsState } from '@/lib/fsrs';
 
 const TODAY = '2026-06-15';
@@ -149,40 +148,20 @@ describe('buildSession — invariant over willekeurige mix', () => {
   });
 });
 
-describe('recallMs — tiktijd telt niet mee als denktijd', () => {
-  it('trekt de geschatte tiktijd van de reactietijd af', () => {
-    // 7 tekens x 180 ms = 1260 ms tikken; wat overblijft is herinneren.
-    expect(recallMs(5000, 7, 'keyboard')).toBe(5000 - 1260);
+describe('gradeForAnswer — denktijd bepaalt de verfijning', () => {
+  it('binnen een halve seconde weten is volledig moeiteloos', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', 200, 'keyboard')).toBe(GRADE.EASY);
+    expect(gradeForAnswer('typed_nl_it', 'correct', 500, 'keyboard')).toBe(GRADE.EASY);
   });
 
-  it('rekent op glas met een hoger tiktarief', () => {
-    expect(recallMs(5000, 7, 'touch')).toBeLessThan(recallMs(5000, 7, 'keyboard'));
+  it('vier seconden aarzelen levert geen bonus meer op', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', 4000, 'keyboard')).toBe(GRADE.GOOD);
+    expect(gradeForAnswer('typed_nl_it', 'correct', 20000, 'keyboard')).toBe(GRADE.GOOD);
   });
 
-  it('een lang woord levert bij dezelfde reactietijd minder denktijd op', () => {
-    expect(recallMs(6000, 17, 'keyboard')).toBeLessThan(recallMs(6000, 4, 'keyboard'));
-  });
-});
-
-describe('gradeForAnswer — snelheid schaalt vloeiend tussen goed en moeiteloos', () => {
-  const WORD = 'parlare'.length;
-  /** Reactietijd die na aftrek van de tiktijd `recall` ms denktijd overhoudt. */
-  const at = (recall: number, medium: 'keyboard' | 'touch' = 'keyboard') =>
-    recall + WORD * (medium === 'keyboard' ? 180 : 340);
-
-  it('binnen een seconde bedacht is volledig moeiteloos', () => {
-    expect(gradeForAnswer('typed_nl_it', 'correct', at(500), WORD, 'keyboard')).toBe(GRADE.EASY);
-    expect(gradeForAnswer('typed_nl_it', 'correct', at(1000), WORD, 'keyboard')).toBe(GRADE.EASY);
-  });
-
-  it('acht seconden denken levert geen bonus meer op', () => {
-    expect(gradeForAnswer('typed_nl_it', 'correct', at(8000), WORD, 'keyboard')).toBe(GRADE.GOOD);
-    expect(gradeForAnswer('typed_nl_it', 'correct', at(20000), WORD, 'keyboard')).toBe(GRADE.GOOD);
-  });
-
-  it('daartussen loopt het monotoon af', () => {
-    const grades = [1000, 2000, 3000, 4500, 6000, 7000, 8000]
-      .map(r => gradeForAnswer('typed_nl_it', 'correct', at(r), WORD, 'keyboard'));
+  it('elke halve seconde aarzelen kost merkbaar', () => {
+    const grades = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000]
+      .map(r => gradeForAnswer('typed_nl_it', 'correct', r, 'keyboard'));
     for (let i = 1; i < grades.length; i++) {
       expect(grades[i]).toBeLessThan(grades[i - 1]);
     }
@@ -190,74 +169,65 @@ describe('gradeForAnswer — snelheid schaalt vloeiend tussen goed en moeiteloos
     expect(grades[grades.length - 1]).toBe(GRADE.GOOD);
   });
 
-  it('dezelfde denktijd telt op glas even zwaar — alleen de tiktijd verschilt', () => {
-    expect(gradeForAnswer('typed_nl_it', 'correct', at(3000, 'touch'), WORD, 'touch'))
-      .toBeCloseTo(gradeForAnswer('typed_nl_it', 'correct', at(3000), WORD, 'keyboard'), 10);
+  it('woordlengte doet er niet meer toe — er wordt niets meer geschat', () => {
+    // Dezelfde denktijd hoort dezelfde beoordeling te geven, ongeacht hoeveel
+    // tekens er daarna nog getypt moeten worden.
+    expect(gradeForAnswer('typed_nl_it', 'correct', 2000, 'keyboard'))
+      .toBe(gradeForAnswer('typed_it_nl', 'correct', 2000, 'keyboard'));
+  });
+
+  it('glas krijgt een kleine marge voor het schermtoetsenbord', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', 2000, 'touch'))
+      .toBeGreaterThan(gradeForAnswer('typed_nl_it', 'correct', 2000, 'keyboard'));
   });
 
   it('een herhaling binnen dezelfde sessie krijgt geen bonus', () => {
     // Na een kennismaking komt het woord uit het werkgeheugen; snelheid zegt
     // dan niets over wat er over weken nog van over is.
-    expect(gradeForAnswer('typed_nl_it', 'correct', at(200), WORD, 'keyboard', true))
-      .toBe(GRADE.GOOD);
+    expect(gradeForAnswer('typed_nl_it', 'correct', 100, 'keyboard', true)).toBe(GRADE.GOOD);
   });
 
   it('blijft altijd binnen goed en moeiteloos', () => {
-    for (const ms of [0, 1, 100, 5000, 20000, 1e9]) {
-      const g = gradeForAnswer('typed_nl_it', 'correct', ms, WORD, 'keyboard');
+    for (const r of [0, 1, 100, 2500, 20000, 1e9]) {
+      const g = gradeForAnswer('typed_nl_it', 'correct', r, 'keyboard');
       expect(g).toBeGreaterThanOrEqual(GRADE.GOOD);
       expect(g).toBeLessThanOrEqual(GRADE.EASY);
     }
   });
 
   it('snelheid redt een bijna- of fout antwoord niet', () => {
-    expect(gradeForAnswer('typed_nl_it', 'almost', 100, WORD, 'keyboard')).toBe(GRADE.HARD);
-    expect(gradeForAnswer('typed_nl_it', 'wrong', 100, WORD, 'keyboard')).toBe(GRADE.FORGOT);
+    expect(gradeForAnswer('typed_nl_it', 'almost', 100, 'keyboard')).toBe(GRADE.HARD);
+    expect(gradeForAnswer('typed_nl_it', 'wrong', 100, 'keyboard')).toBe(GRADE.FORGOT);
   });
 
-  it('zonder gemeten tijd is er geen verhoging', () => {
-    expect(gradeForAnswer('typed_nl_it', 'correct', null, WORD, 'keyboard')).toBe(GRADE.GOOD);
+  it('zonder eerste toets is er geen denktijd en dus geen verhoging', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', null, 'keyboard')).toBe(GRADE.GOOD);
   });
 
   it('meerkeuze wordt nooit verhoogd, hoe snel ook', () => {
-    expect(gradeForAnswer('mc', 'correct', 10, WORD, 'keyboard')).toBe(GRADE.GOOD);
-    expect(gradeForAnswer('mc', 'wrong', 10, WORD, 'keyboard')).toBe(GRADE.FORGOT);
+    expect(gradeForAnswer('mc', 'correct', 10, 'keyboard')).toBe(GRADE.GOOD);
+    expect(gradeForAnswer('mc', 'wrong', 10, 'keyboard')).toBe(GRADE.FORGOT);
   });
 });
 
 describe('een gloednieuw woord toont een zichtbare schaal', () => {
   const TODAY_ = '2026-06-15';
-  const WORD = 'parlare'.length;
-  const at = (recall: number) => recall + WORD * 180;
 
-  it('verschillende denktijden leveren verschillende labels op', () => {
-    const labels = [1000, 3000, 5000, 7000, 8000].map(r => {
-      const g = gradeForAnswer('typed_nl_it', 'correct', at(r), WORD, 'keyboard');
+  it('een halve seconde extra nadenken verandert het label', () => {
+    const labels = [500, 1500, 2500, 3500].map(r => {
+      const g = gradeForAnswer('typed_nl_it', 'correct', r, 'keyboard');
       return intervalShort(previewInterval(emptyFsrsState(), g, TODAY_));
     });
     // Geen enkel label mag samenvallen met zijn buur, anders is de schaal
     // onzichtbaar — dat was precies de klacht.
     expect(new Set(labels).size).toBe(labels.length);
   });
-});
 
-describe('answerLength — wat je werkelijk moet typen', () => {
-  it('neemt de kortste betekenis, niet het hele veld', () => {
-    // "praten; kletsen" is 15 tekens, maar je typt er 6.
-    expect(answerLength('praten; kletsen')).toBe(6);
-  });
-
-  it('telt annotaties niet mee', () => {
-    expect(answerLength('il libro (s.m.)')).toBe('il libro'.length);
-  });
-
-  it('werkt bij een enkele betekenis', () => {
-    expect(answerLength('parlare')).toBe(7);
-  });
-
-  it('valt terug op een leeg veld zonder te klappen', () => {
-    expect(answerLength('')).toBe(0);
-    expect(answerLength('   ')).toBe(0);
+  it('meteen typen levert meer op dan even nadenken', () => {
+    const meteen = gradeForAnswer('typed_nl_it', 'correct', 300, 'keyboard');
+    const even   = gradeForAnswer('typed_nl_it', 'correct', 1800, 'keyboard');
+    expect(previewInterval(emptyFsrsState(), meteen, TODAY_))
+      .toBeGreaterThan(previewInterval(emptyFsrsState(), even, TODAY_));
   });
 });
 

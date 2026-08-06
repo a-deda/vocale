@@ -67,9 +67,11 @@ export interface FsrsReviewLog {
    */
   effectiveGrade: number;
   /**
-   * Waarmee er getypt werd. Het tiktarief per medium is nu geschat; met dit
-   * veld erbij is het achteraf uit de eigen historie te toetsen.
+   * Tijd tot de eerste toetsaanslag: het herinneren zelf, zonder tiktijd.
+   * Dit stuurt de beoordeling; `responseMs` blijft de volledige tijd tot Enter.
    */
+  recallMs:     number | null;
+  /** Waarmee er getypt werd — glas of toetsenbord. */
   inputMedium:  InputMedium | null;
   intervalDays: number;
   reviewedAt:   string;
@@ -158,7 +160,7 @@ export function reviewCard(
   /** Mag gebroken zijn tussen goed en moeiteloos; zie `speedFactor`. */
   grade: number,
   today: string // YYYY-MM-DD
-): { newState: FsrsState; logPartial: Omit<FsrsReviewLog, 'cardId' | 'mode' | 'responseMs' | 'inputMedium'> } {
+): { newState: FsrsState; logPartial: Omit<FsrsReviewLog, 'cardId' | 'mode' | 'responseMs' | 'recallMs' | 'inputMedium'> } {
   const isNew    = state.stability === null;
   const sBefore  = state.stability;
   const dBefore  = state.difficulty;
@@ -227,30 +229,19 @@ export function determineGrade(
 }
 
 /**
- * Tiktarief per teken. Ruwweg 65 woorden per minuut op een fysiek toetsenbord
- * tegenover 34 op glas. Geschat, niet gemeten — daarom slaan we het medium bij
- * elke review op, zodat deze twee getallen later uit de historie te toetsen zijn.
- */
-const PER_CHAR_MS: Record<InputMedium, number> = { keyboard: 180, touch: 340 };
-
-/** Binnen een seconde bedacht is moeiteloos; acht seconden is met moeite. */
-const RECALL_FAST_MS = 1000;
-const RECALL_SLOW_MS = 8000;
-
-/**
- * Wat er van de reactietijd overblijft als de tiktijd eraf gaat: de tijd die
- * het herinneren zelf kostte.
+ * Denktijd: meteen weten is een halve seconde, vier seconden is aarzelen.
  *
- * Eerder lag er een budget *omheen* — herinnertijd plus tiktijd, met een band
- * eromheen. Dat schaalde de hele band mee met de woordlengte, waardoor een lang
- * woord ook een ruimere herinnermarge kreeg. Aftrekken is zuiverder: tikken is
- * overhead, herinneren is wat we meten.
+ * Dit is de tijd tot de eerste toetsaanslag, dus zonder tiktijd erin. Eerder
+ * werd die tiktijd geschat en van de reactietijd afgetrokken; wie sneller typte
+ * dan het aangenomen tarief raakte daardoor tot ruim een seconde echte denktijd
+ * kwijt, en dan werd elk antwoord moeiteloos. Meten is hier beter dan schatten:
+ * woordlengte en typsnelheid doen er nu helemaal niet meer toe.
  */
-export function recallMs(
-  responseMs: number, answerLength: number, medium: InputMedium,
-): number {
-  return responseMs - answerLength * PER_CHAR_MS[medium];
-}
+const RECALL_FAST_MS = 500;
+const RECALL_SLOW_MS = 4000;
+
+/** Op glas moet het schermtoetsenbord eerst omhoog voor je kunt tikken. */
+const TOUCH_ALLOWANCE_MS = 250;
 
 /**
  * Hoe moeiteloos ging dit, van 0 (niet) tot 1 (volledig)?
@@ -262,14 +253,13 @@ export function recallMs(
  * (W[17]/W[18]); die zijn hier niet geïmplementeerd, dus vervalt de bonus.
  */
 export function speedFactor(
-  responseMs: number | null,
-  answerLength: number,
+  recallMs: number | null,
   medium: InputMedium,
   repeat = false,
 ): number {
-  if (responseMs === null || !Number.isFinite(responseMs)) return 0;
+  if (recallMs === null || !Number.isFinite(recallMs)) return 0;
   if (repeat) return 0;
-  const r = recallMs(responseMs, answerLength, medium);
+  const r = recallMs - (medium === 'touch' ? TOUCH_ALLOWANCE_MS : 0);
   if (r <= RECALL_FAST_MS) return 1;
   if (r >= RECALL_SLOW_MS) return 0;
   return (RECALL_SLOW_MS - r) / (RECALL_SLOW_MS - RECALL_FAST_MS);
@@ -285,11 +275,11 @@ export function speedFactor(
  * Zonder invoertijd (`null`, bij overslaan en meerkeuze) is er geen upgrade.
  */
 export function gradeForAnswer(
-  mode:         FsrsMode,
-  matchResult:  'correct' | 'almost' | 'wrong',
-  responseMs:   number | null,
-  answerLength: number,
-  medium:       InputMedium,
+  mode:        FsrsMode,
+  matchResult: 'correct' | 'almost' | 'wrong',
+  /** Tijd tot de eerste toetsaanslag; null als er niets getypt is. */
+  recallMs:    number | null,
+  medium:      InputMedium,
   /** Is dit woord eerder in deze sessie al beantwoord? */
   repeat = false,
 ): number {
@@ -298,7 +288,7 @@ export function gradeForAnswer(
   // meerkeuze meet geen tijd die iets zegt over herinneren.
   if (base !== GRADE.GOOD) return base;
   if (mode === 'mc' || mode === 'self_assess') return base;
-  return GRADE.GOOD + speedFactor(responseMs, answerLength, medium, repeat);
+  return GRADE.GOOD + speedFactor(recallMs, medium, repeat);
 }
 
 // ─── SESSIE OPBOUWEN ─────────────────────────────────────────────────────────
