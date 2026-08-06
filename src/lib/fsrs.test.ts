@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildSession, FSRS_MODES, GRADE, gradeForAnswer, initialStability, intervalShort,
-  intervalTone, previewInterval, speedThreshold, updateDifficulty, W,
+  buildSession, emptyFsrsState, FSRS_MODES, GRADE, gradeForAnswer, initialStability,
+  intervalShort, intervalTone, previewInterval, recallMs, updateDifficulty, W,
 } from '@/lib/fsrs';
 import { answerLength } from '@/lib/translation-utils';
 import type { FsrsMode, FsrsState } from '@/lib/fsrs';
@@ -149,63 +149,65 @@ describe('buildSession — invariant over willekeurige mix', () => {
   });
 });
 
-describe('speedThreshold — herinnertijd plus tiktijd', () => {
-  it('zonder tekens blijft alleen de herinnertijd over, op elk medium', () => {
-    expect(speedThreshold(0, 'keyboard')).toBe(4000);
-    expect(speedThreshold(0, 'touch')).toBe(4000);
+describe('recallMs — tiktijd telt niet mee als denktijd', () => {
+  it('trekt de geschatte tiktijd van de reactietijd af', () => {
+    // 7 tekens x 180 ms = 1260 ms tikken; wat overblijft is herinneren.
+    expect(recallMs(5000, 7, 'keyboard')).toBe(5000 - 1260);
   });
 
-  it('glas krijgt meer tijd per teken dan een toetsenbord', () => {
-    expect(speedThreshold(10, 'touch')).toBeGreaterThan(speedThreshold(10, 'keyboard'));
+  it('rekent op glas met een hoger tiktarief', () => {
+    expect(recallMs(5000, 7, 'touch')).toBeLessThan(recallMs(5000, 7, 'keyboard'));
   });
 
-  it('een langer antwoord krijgt een ruimer budget', () => {
-    expect(speedThreshold(20, 'keyboard')).toBeGreaterThan(speedThreshold(5, 'keyboard'));
+  it('een lang woord levert bij dezelfde reactietijd minder denktijd op', () => {
+    expect(recallMs(6000, 17, 'keyboard')).toBeLessThan(recallMs(6000, 4, 'keyboard'));
   });
 });
 
 describe('gradeForAnswer — snelheid schaalt vloeiend tussen goed en moeiteloos', () => {
-  // 'parlare' telt 7 tekens.
   const WORD = 'parlare'.length;
-  const T    = speedThreshold(WORD, 'keyboard');
+  /** Reactietijd die na aftrek van de tiktijd `recall` ms denktijd overhoudt. */
+  const at = (recall: number, medium: 'keyboard' | 'touch' = 'keyboard') =>
+    recall + WORD * (medium === 'keyboard' ? 180 : 340);
 
-  it('de uitersten komen exact overeen met de oude hele grades', () => {
-    expect(gradeForAnswer('typed_nl_it', 'correct', 0.5 * T, WORD, 'keyboard')).toBe(GRADE.EASY);
-    expect(gradeForAnswer('typed_nl_it', 'correct', 1.5 * T, WORD, 'keyboard')).toBe(GRADE.GOOD);
+  it('binnen een seconde bedacht is volledig moeiteloos', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', at(500), WORD, 'keyboard')).toBe(GRADE.EASY);
+    expect(gradeForAnswer('typed_nl_it', 'correct', at(1000), WORD, 'keyboard')).toBe(GRADE.EASY);
   });
 
-  it('op de ijkdrempel zit je precies halverwege', () => {
-    expect(gradeForAnswer('typed_nl_it', 'correct', T, WORD, 'keyboard')).toBeCloseTo(3.5, 10);
+  it('acht seconden denken levert geen bonus meer op', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', at(8000), WORD, 'keyboard')).toBe(GRADE.GOOD);
+    expect(gradeForAnswer('typed_nl_it', 'correct', at(20000), WORD, 'keyboard')).toBe(GRADE.GOOD);
   });
 
-  it('loopt monotoon af naarmate je trager antwoordt', () => {
-    const grades = [0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6]
-      .map(k => gradeForAnswer('typed_nl_it', 'correct', k * T, WORD, 'keyboard'));
+  it('daartussen loopt het monotoon af', () => {
+    const grades = [1000, 2000, 3000, 4500, 6000, 7000, 8000]
+      .map(r => gradeForAnswer('typed_nl_it', 'correct', at(r), WORD, 'keyboard'));
     for (let i = 1; i < grades.length; i++) {
-      expect(grades[i]).toBeLessThanOrEqual(grades[i - 1]);
+      expect(grades[i]).toBeLessThan(grades[i - 1]);
     }
     expect(grades[0]).toBe(GRADE.EASY);
     expect(grades[grades.length - 1]).toBe(GRADE.GOOD);
   });
 
-  it('dezelfde tijd telt op glas gunstiger dan op een toetsenbord', () => {
-    const ms = 8000;
-    expect(gradeForAnswer('typed_nl_it', 'correct', ms, WORD, 'touch'))
-      .toBeGreaterThan(gradeForAnswer('typed_nl_it', 'correct', ms, WORD, 'keyboard'));
+  it('dezelfde denktijd telt op glas even zwaar — alleen de tiktijd verschilt', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', at(3000, 'touch'), WORD, 'touch'))
+      .toBeCloseTo(gradeForAnswer('typed_nl_it', 'correct', at(3000), WORD, 'keyboard'), 10);
+  });
+
+  it('een herhaling binnen dezelfde sessie krijgt geen bonus', () => {
+    // Na een kennismaking komt het woord uit het werkgeheugen; snelheid zegt
+    // dan niets over wat er over weken nog van over is.
+    expect(gradeForAnswer('typed_nl_it', 'correct', at(200), WORD, 'keyboard', true))
+      .toBe(GRADE.GOOD);
   });
 
   it('blijft altijd binnen goed en moeiteloos', () => {
-    for (const ms of [0, 1, 100, 5000, 6100, 20000, 1e9]) {
+    for (const ms of [0, 1, 100, 5000, 20000, 1e9]) {
       const g = gradeForAnswer('typed_nl_it', 'correct', ms, WORD, 'keyboard');
       expect(g).toBeGreaterThanOrEqual(GRADE.GOOD);
       expect(g).toBeLessThanOrEqual(GRADE.EASY);
     }
-  });
-
-  it('een langer antwoord krijgt een ruimere drempel', () => {
-    const long = 'la disoccupazione'.length;
-    expect(gradeForAnswer('typed_nl_it', 'correct', 9000, long, 'keyboard'))
-      .toBeGreaterThan(gradeForAnswer('typed_nl_it', 'correct', 9000, WORD, 'keyboard'));
   });
 
   it('snelheid redt een bijna- of fout antwoord niet', () => {
@@ -220,6 +222,22 @@ describe('gradeForAnswer — snelheid schaalt vloeiend tussen goed en moeiteloos
   it('meerkeuze wordt nooit verhoogd, hoe snel ook', () => {
     expect(gradeForAnswer('mc', 'correct', 10, WORD, 'keyboard')).toBe(GRADE.GOOD);
     expect(gradeForAnswer('mc', 'wrong', 10, WORD, 'keyboard')).toBe(GRADE.FORGOT);
+  });
+});
+
+describe('een gloednieuw woord toont een zichtbare schaal', () => {
+  const TODAY_ = '2026-06-15';
+  const WORD = 'parlare'.length;
+  const at = (recall: number) => recall + WORD * 180;
+
+  it('verschillende denktijden leveren verschillende labels op', () => {
+    const labels = [1000, 3000, 5000, 7000, 8000].map(r => {
+      const g = gradeForAnswer('typed_nl_it', 'correct', at(r), WORD, 'keyboard');
+      return intervalShort(previewInterval(emptyFsrsState(), g, TODAY_));
+    });
+    // Geen enkel label mag samenvallen met zijn buur, anders is de schaal
+    // onzichtbaar — dat was precies de klacht.
+    expect(new Set(labels).size).toBe(labels.length);
   });
 });
 
@@ -246,8 +264,10 @@ describe('answerLength — wat je werkelijk moet typen', () => {
 describe('intervalShort en intervalTone', () => {
   it('kiest de eenheid op dezelfde grenzen als de lange vorm', () => {
     expect(intervalShort(6)).toBe('+6 d');
-    expect(intervalShort(13)).toBe('+13 d');
-    expect(intervalShort(14)).toBe('+2 wk');
+    // Dagen lopen door tot vier weken: een gloednieuw woord komt niet verder
+    // dan 16 dagen, en in weken zou die hele schaal op "+2 wk" uitkomen.
+    expect(intervalShort(16)).toBe('+16 d');
+    expect(intervalShort(27)).toBe('+27 d');
     expect(intervalShort(28)).toBe('+4 wk');
     expect(intervalShort(119)).toBe('+17 wk');
     expect(intervalShort(120)).toBe('+4 mnd');

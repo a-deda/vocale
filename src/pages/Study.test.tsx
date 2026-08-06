@@ -328,7 +328,9 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     it('slaat de gebroken beoordeling en het medium op', async () => {
       vi.useFakeTimers();
       try {
-        answerAfter(T); // precies op de drempel = halverwege
+        // 1260 ms tikken (7 tekens x 180) plus 4500 ms denken; dat is precies
+        // halverwege de denkband van 1 tot 8 seconden.
+        answerAfter(1260 + 4500);
         await act(async () => { await vi.advanceTimersByTimeAsync(1200); });
 
         const log = H.state.addReviewLog.mock.calls[0][0];
