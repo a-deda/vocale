@@ -6,6 +6,7 @@ import {
   emptyFsrsState, gradeForAnswer, intervalShort, intervalTone, previewInterval, reviewCard,
 } from '@/lib/fsrs';
 import { detectInputMedium } from '@/lib/input-medium';
+import { addDaysKey, statesForHorizon } from '@/lib/session-horizon';
 import type { FsrsGrade, FsrsMode, FsrsState, QueueItem } from '@/lib/fsrs';
 import { fuzzyMatch, fuzzyMatchWithAlternatives, generateMCOptions } from '@/lib/srs';
 import { findSynonymOriginals } from '@/lib/synonyms';
@@ -13,7 +14,7 @@ import { splitTranslations, stripAnnotations } from '@/lib/translation-utils';
 import { buildOverview, countStates } from '@/lib/vocabulary';
 import { localDateKey } from '@/lib/store';
 import { Word } from '@/types/word';
-import { Screen, ScreenHeader, SessionHeader } from '@/components/vocale/Primitives';
+import { Button, Screen, ScreenHeader, SessionHeader } from '@/components/vocale/Primitives';
 import ProductionCard from '@/components/study/ProductionCard';
 import ListeningCard from '@/components/study/ListeningCard';
 import IntroCard from '@/components/study/IntroCard';
@@ -49,14 +50,22 @@ export default function Study() {
   const [initialized, setInitialized]   = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  /**
+   * Tot welke datum de sessie woorden ophaalt. Normaal vandaag; bij
+   * vooruitwerken schuift hij per ronde een dag op. Alleen de *selectie*
+   * verschuift — de beoordeling rekent onverminderd met de echte dag van
+   * vandaag, dus wie vroeg oefent krijgt terecht minder groei.
+   */
+  const [horizon, setHorizon] = useState(today);
+
   useEffect(() => {
     if (initialized || words.length === 0) return;
 
     const allCardStates: Record<string, Partial<Record<FsrsMode, FsrsState>>> = {};
-    for (const w of words) allCardStates[w.id] = fsrsStates[w.id] ?? {};
+    for (const w of words) allCardStates[w.id] = statesForHorizon(fsrsStates[w.id] ?? {}, horizon, today);
 
     const wordMap = new Map(words.map(w => [w.id, w]));
-    const resolved = buildSession(allCardStates, today, stats.dailyGoal)
+    const resolved = buildSession(allCardStates, horizon, stats.dailyGoal)
       .map(item => {
         const word = wordMap.get(item.cardId);
         return word ? { ...item, word } : null;
@@ -65,7 +74,7 @@ export default function Study() {
 
     setQueue(resolved);
     setInitialized(true);
-  }, [words, fsrsStates, initialized, today, stats.dailyGoal]);
+  }, [words, fsrsStates, initialized, horizon, today, stats.dailyGoal]);
 
   // ─── UI-state ───────────────────────────────────────────────────────────
   const [typedAnswer, setTypedAnswer] = useState('');
@@ -447,14 +456,24 @@ export default function Study() {
     [words, fsrsStates, sessions, reviewLogs, today],
   );
 
-  /** Wat er ná deze sessie nog te doen valt; alles wat due was is nu vooruitgeschoven. */
+  /** De dag die een volgende ronde erbij zou pakken. */
+  const nextHorizon = useMemo(() => addDaysKey(horizon, 1), [horizon]);
+
+  /**
+   * Hoeveel woorden een ronde vooruit zou opleveren: wat er nog openstaat plus
+   * alles wat tot en met die dag vervalt. Zonder de dag op te schuiven bleef
+   * dit hangen op de nieuwe woorden die nog niet geïntroduceerd waren, en
+   * veranderde er niets aan wat er morgen klaarstond.
+   */
   const aheadCount = useMemo(
     () => buildSession(
-      Object.fromEntries(words.map(w => [w.id, fsrsStates[w.id] ?? {}])),
-      today,
+      Object.fromEntries(words.map(
+        w => [w.id, statesForHorizon(fsrsStates[w.id] ?? {}, nextHorizon, today)],
+      )),
+      nextHorizon,
       stats.dailyGoal,
     ).length,
-    [words, fsrsStates, today, stats.dailyGoal],
+    [words, fsrsStates, nextHorizon, today, stats.dailyGoal],
   );
 
   const startAnotherRound = useCallback(() => {
@@ -467,8 +486,10 @@ export default function Study() {
     setTally(null);
     setPendingPool([]);
     setCurrentIndex(0);
+    // Een dag verder kijken; anders levert opnieuw bouwen precies niets op.
+    setHorizon(nextHorizon);
     setInitialized(false);
-  }, []);
+  }, [nextHorizon]);
 
   if (initialized && queue.length === 0) {
     return (
@@ -478,6 +499,11 @@ export default function Study() {
           Niets vervalt vandaag.
           {overview.dueTomorrow > 0 && <><br />Morgen vervallen er {overview.dueTomorrow}.</>}
         </div>
+        {aheadCount > 0 && (
+          <Button variant="quiet" className="mt-[26px]" onClick={startAnotherRound}>
+            Vooruitwerken ({aheadCount})
+          </Button>
+        )}
       </Screen>
     );
   }
