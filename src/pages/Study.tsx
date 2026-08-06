@@ -36,11 +36,11 @@ function typedLength(word: Word, usedMode: FsrsMode): number {
 /** Minimaal aantal kaarten tussen een kennismaking en de getypte herhaling. */
 const MIN_SPACING = 3;
 /**
- * Een goed antwoord in drie tellen: het veld kleurt kort goud, daarna komt het
- * briefje op een wit veld op — een goudverloop op goud zou onzichtbaar zijn —
- * en pas daarna de volgende kaart.
+ * Een goed antwoord: veld en briefje komen tegelijk op. De flits is kort, zodat
+ * het veld alweer wit is tegen de tijd dat het briefje op volle sterkte staat —
+ * een goudverloop op goud zou onzichtbaar zijn.
  */
-const FLASH_MS = 260;
+const FLASH_MS = 200;
 const HOLD_MS  = 1000;
 
 export default function Study() {
@@ -299,9 +299,11 @@ export default function Study() {
     item: QueuedWord, usedMode: FsrsMode, kind: 'mc' | 'typed',
     result: MatchResult, responseMs: number | null,
   ) => {
+    // Vóór het wegschrijven kijken: is dit woord vandaag al langsgekomen?
+    const repeat = wordResultsRef.current.has(item.cardId);
     const grade = gradeForAnswer(
       kind === 'mc' ? 'mc' : usedMode, result, responseMs,
-      typedLength(item.word, usedMode), detectInputMedium(),
+      typedLength(item.word, usedMode), detectInputMedium(), repeat,
     );
 
     if (result === 'almost') tallyRef.current.almost++;
@@ -344,7 +346,8 @@ export default function Study() {
       // Geen feedbackscherm: het veld kleurt kort goud en er komt een briefje op
       // met wanneer dit woord terugkomt — hoe vlotter je was, hoe verder weg.
       const grade = gradeForAnswer(
-        usedMode, result, responseMs, typedLength(currentItem.word, usedMode), detectInputMedium(),
+        usedMode, result, responseMs, typedLength(currentItem.word, usedMode),
+        detectInputMedium(), wordResultsRef.current.has(currentItem.cardId),
       );
       setFlash(true);
       setTimeout(() => setFlash(false), FLASH_MS);
@@ -502,6 +505,7 @@ export default function Study() {
       pending.kind === 'mc' ? 'mc' : pending.usedMode,
       pending.result, pending.responseMs,
       typedLength(pending.item.word, pending.usedMode), detectInputMedium(),
+      wordResultsRef.current.has(pending.item.cardId),
     );
 
     return (

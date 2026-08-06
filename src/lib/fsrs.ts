@@ -226,9 +226,6 @@ export function determineGrade(
   return GRADE.FORGOT;
 }
 
-/** Herinneren kost op elk medium evenveel; alleen tikken verschilt. */
-const RECALL_MS = 4000;
-
 /**
  * Tiktarief per teken. Ruwweg 65 woorden per minuut op een fysiek toetsenbord
  * tegenover 34 op glas. Geschat, niet gemeten — daarom slaan we het medium bij
@@ -236,33 +233,46 @@ const RECALL_MS = 4000;
  */
 const PER_CHAR_MS: Record<InputMedium, number> = { keyboard: 180, touch: 340 };
 
+/** Binnen een seconde bedacht is moeiteloos; acht seconden is met moeite. */
+const RECALL_FAST_MS = 1000;
+const RECALL_SLOW_MS = 8000;
+
 /**
- * De ijkdrempel: herinnertijd plus de tijd die het tikken redelijkerwijs kost.
- * Het midden van de snelheidsband.
+ * Wat er van de reactietijd overblijft als de tiktijd eraf gaat: de tijd die
+ * het herinneren zelf kostte.
+ *
+ * Eerder lag er een budget *omheen* — herinnertijd plus tiktijd, met een band
+ * eromheen. Dat schaalde de hele band mee met de woordlengte, waardoor een lang
+ * woord ook een ruimere herinnermarge kreeg. Aftrekken is zuiverder: tikken is
+ * overhead, herinneren is wat we meten.
  */
-export function speedThreshold(answerLength: number, medium: InputMedium): number {
-  return RECALL_MS + answerLength * PER_CHAR_MS[medium];
+export function recallMs(
+  responseMs: number, answerLength: number, medium: InputMedium,
+): number {
+  return responseMs - answerLength * PER_CHAR_MS[medium];
 }
 
 /**
  * Hoe moeiteloos ging dit, van 0 (niet) tot 1 (volledig)?
  *
- * De oude drempel was een klif: één milliseconde later en je verloor de hele
- * bonus. Hij is nu het midden van een band — vol op de helft van de drempel,
- * niets meer op anderhalf keer de drempel, lineair daartussen. Wie er net
- * onder zat krijgt dus minder dan voorheen, wie er net boven zat meer; de
- * ondergrens blijft het gewone goed, dus niemand gaat erop achteruit.
+ * `repeat` is waar zodra dit woord eerder in dezelfde sessie is beantwoord —
+ * na een kennismaking via meerkeuze of luisteren, of bij een herkansing. Dan
+ * komt het antwoord uit het werkgeheugen en zegt de snelheid niets over wat er
+ * over weken nog van over is. FSRS-5 kent daar aparte gewichten voor
+ * (W[17]/W[18]); die zijn hier niet geïmplementeerd, dus vervalt de bonus.
  */
 export function speedFactor(
-  responseMs: number | null, answerLength: number, medium: InputMedium,
+  responseMs: number | null,
+  answerLength: number,
+  medium: InputMedium,
+  repeat = false,
 ): number {
   if (responseMs === null || !Number.isFinite(responseMs)) return 0;
-  const t    = speedThreshold(answerLength, medium);
-  const fast = 0.5 * t;
-  const slow = 1.5 * t;
-  if (responseMs <= fast) return 1;
-  if (responseMs >= slow) return 0;
-  return (slow - responseMs) / (slow - fast);
+  if (repeat) return 0;
+  const r = recallMs(responseMs, answerLength, medium);
+  if (r <= RECALL_FAST_MS) return 1;
+  if (r >= RECALL_SLOW_MS) return 0;
+  return (RECALL_SLOW_MS - r) / (RECALL_SLOW_MS - RECALL_FAST_MS);
 }
 
 /**
@@ -280,13 +290,15 @@ export function gradeForAnswer(
   responseMs:   number | null,
   answerLength: number,
   medium:       InputMedium,
+  /** Is dit woord eerder in deze sessie al beantwoord? */
+  repeat = false,
 ): number {
   const base = determineGrade(mode, matchResult);
   // Alleen een goed antwoord kan meeschalen; bijna en fout staan vast, en
   // meerkeuze meet geen tijd die iets zegt over herinneren.
   if (base !== GRADE.GOOD) return base;
   if (mode === 'mc' || mode === 'self_assess') return base;
-  return GRADE.GOOD + speedFactor(responseMs, answerLength, medium);
+  return GRADE.GOOD + speedFactor(responseMs, answerLength, medium, repeat);
 }
 
 // ─── SESSIE OPBOUWEN ─────────────────────────────────────────────────────────
@@ -466,13 +478,14 @@ export function previewInterval(state: FsrsState, grade: number, today: string):
 /**
  * Een aantal dagen als leesbare periode.
  *
- * Weken lopen bewust door tot ruim vier maanden. In maanden afronden maakt het
- * verschil tussen 76 en 88 dagen onzichtbaar — allebei "3 maanden" — terwijl
- * juist dát verschil is wat een snel antwoord oplevert.
+ * Dagen lopen door tot vier weken en weken tot ruim vier maanden. Grover
+ * afronden wist juist het verschil uit dat een snel antwoord oplevert: een
+ * gloednieuw woord komt niet verder dan 16 dagen, en in weken zouden 14 tot 17
+ * dagen allemaal "2 weken" heten.
  */
 export function intervalText(days: number): string {
   if (days === 1)  return '1 dag';
-  if (days < 14)   return `${days} dagen`;
+  if (days < 28)   return `${days} dagen`;
   if (days < 120) {
     const weeks = Math.round(days / 7);
     return weeks === 1 ? '1 week' : `${weeks} weken`;
@@ -486,7 +499,7 @@ export function intervalText(days: number): string {
  * `intervalText`, zodat de twee weergaven niet uiteen kunnen lopen.
  */
 export function intervalShort(days: number): string {
-  if (days < 14)  return `+${days} d`;
+  if (days < 28)  return `+${days} d`;
   if (days < 120) return `+${Math.round(days / 7)} wk`;
   return `+${Math.round(days / 30)} mnd`;
 }

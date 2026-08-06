@@ -16,16 +16,19 @@ const MIN_ALPHA = 0.18;
  * Het systeem kent geen schaduw; een briefje herken je hier aan de kleur en de
  * lichte scheefstand.
  */
-export default function IntervalNote({
-  text, tone, delayMs = 240,
-}: { text: string; tone: number; delayMs?: number }) {
+export default function IntervalNote({ text, tone }: { text: string; tone: number }) {
   const [shown, setShown] = useState(false);
 
-  // Even wachten: het veld is nog goud, en daarop zou dit briefje wegvallen.
+  // Meteen opkomen, samen met de goudflits. Twee frames wachten omdat de
+  // beginstand eerst geschilderd moet zijn; anders staat het briefje er in één
+  // keer en loopt de overgang niet.
   useEffect(() => {
-    const timer = setTimeout(() => setShown(true), delayMs);
-    return () => clearTimeout(timer);
-  }, [delayMs]);
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setShown(true));
+    });
+    return () => { cancelAnimationFrame(outer); cancelAnimationFrame(inner); };
+  }, []);
 
   const alpha = MIN_ALPHA + (1 - MIN_ALPHA) * Math.min(1, Math.max(0, tone));
 
