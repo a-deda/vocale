@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/components/StoreProvider';
 import { buildSession } from '@/lib/fsrs';
@@ -6,6 +6,8 @@ import { buildOverview, formatSeconds } from '@/lib/vocabulary';
 import { localDateKey } from '@/lib/store';
 import StateBar from '@/components/vocale/StateBar';
 import RhythmDots from '@/components/vocale/RhythmDots';
+import DecayChart from '@/components/vocale/DecayChart';
+import DaySheet from '@/components/vocale/DaySheet';
 import {
   Button, Card, Data, Hairline, ItalianText, Label, Screen, ScreenHeader,
 } from '@/components/vocale/Primitives';
@@ -38,6 +40,16 @@ export default function Dashboard() {
     && overview.daysAway >= LONG_ABSENCE_DAYS
     && overview.counts.lapsed > 0;
 
+  // Welke dag het blad toont; null zolang het dicht is.
+  const [openDay, setOpenDay] = useState<number | null>(null);
+
+  // Wat vandaag openstaat past niet altijd in één sessie. Hoeveel sessies het
+  // wél kost staat onder de grafiek, zodat de berg een lengte krijgt.
+  const sessionsToClear = Math.ceil(waiting / sessionSize);
+  const clearNote = overview.backlog > 0 && sessionsToClear > 1
+    ? `bij in ${sessionsToClear} sessies`
+    : undefined;
+
   return (
     <Screen>
       <ScreenHeader onMenu={() => navigate('/menu')} />
@@ -45,13 +57,18 @@ export default function Dashboard() {
       {longAbsence ? (
         <Absence days={overview.daysAway!} lapsed={overview.counts.lapsed} />
       ) : waiting > 0 ? (
-        <Due count={overview.dueToday} overview={overview} />
+        <Due waiting={waiting} backlog={overview.backlog} />
       ) : (
         <Nothing tomorrow={overview.dueTomorrow} />
       )}
 
       <div className="mt-[26px]">
-        <StateBar counts={overview.counts} />
+        <DecayChart
+          days={overview.decay}
+          limit={sessionSize}
+          note={clearNote}
+          onPickDay={setOpenDay}
+        />
       </div>
 
       <div className="mt-[26px]">
@@ -69,11 +86,10 @@ export default function Dashboard() {
             Woorden toevoegen
           </Button>
         )}
-        {longAbsence && queued < overview.counts.lapsed && (
-          <p className="mt-[10px] text-[13px] text-ink-weak">
-            De sessie stopt bij {sessionSize}. De rest komt daarna.
-          </p>
-        )}
+      </div>
+
+      <div className="mt-[26px]">
+        <StateBar counts={overview.counts} />
       </div>
 
       <Card className="mt-[26px]">
@@ -136,27 +152,38 @@ export default function Dashboard() {
         <span>statistieken</span>
         <span>→</span>
       </button>
+
+      {openDay !== null && (
+        <DaySheet
+          days={overview.decay}
+          index={openDay}
+          limit={sessionSize}
+          today={today}
+          onIndex={setOpenDay}
+          onClose={() => setOpenDay(null)}
+        />
+      )}
     </Screen>
   );
 }
 
-function Due({ count, overview }: { count: number; overview: ReturnType<typeof buildOverview> }) {
-  // De weekregel houdt vast wat eraan komt, nu de vervalstrook eruit is.
-  const week = [
-    overview.backlog > 0     ? `${overview.backlog} stonden er al` : null,
-    overview.dueThisWeek > 0 ? `${overview.dueThisWeek} deze week` : null,
-    overview.dueTomorrow > 0 ? `morgen ${overview.dueTomorrow}`    : null,
-  ].filter(Boolean);
-
+/**
+ * Het kopgetal is alles wat nu klaarligt — wat vandaag vervalt plus wat al
+ * openstond. Dat is precies de eerste staaf van de grafiek eronder; de rest van
+ * de week hoeft er niet meer bij te staan, want die staat er in beeld.
+ */
+function Due({ waiting, backlog }: { waiting: number; backlog: number }) {
   return (
     <>
       <div className="text-[108px] font-bold leading-[0.86] tracking-[-0.055em] text-ink">
-        {count > 0 ? count : overview.backlog}
+        {waiting}
       </div>
       <div className="mt-[6px] text-[18px] font-medium text-ink-weak">
-        {count > 0 ? 'woorden vervallen vandaag' : 'woorden stonden er al'}
+        {backlog > 0 ? 'woorden staan open' : 'woorden vervallen vandaag'}
       </div>
-      {week.length > 0 && <Data className="mt-[10px] block">{week.join(' · ')}</Data>}
+      {backlog > 0 && backlog < waiting && (
+        <Data className="mt-[10px] block">{backlog} van eerder</Data>
+      )}
     </>
   );
 }

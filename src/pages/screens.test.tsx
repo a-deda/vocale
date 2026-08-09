@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { Word } from '@/types/word';
 
@@ -77,10 +77,10 @@ describe('overzicht', () => {
     seedStore();
     const { container } = renderAt(<Dashboard />);
 
-    // Het kopgetal is het eerste dat je ziet; "1" staat ook in de balk, dus scope het.
-    expect(container.querySelector('.text-\\[108px\\]')).toHaveTextContent('1');
-    expect(screen.getByText('woorden vervallen vandaag')).toBeInTheDocument();
-    expect(screen.getByText(/1 stonden er al/)).toBeInTheDocument(); // w1 stond al open
+    // Het kopgetal telt alles wat klaarligt: w2 vervalt vandaag, w1 stond al open.
+    expect(container.querySelector('.text-\\[108px\\]')).toHaveTextContent('2');
+    expect(screen.getByText('woorden staan open')).toBeInTheDocument();
+    expect(screen.getByText('1 van eerder')).toBeInTheDocument(); // w1 stond al open
 
     // Toestandsbalk: wankel 1 · actief 1 · vast 1 · nieuw 1, samen 4 woorden.
     expect(screen.getByText('wankel')).toBeInTheDocument();
@@ -94,6 +94,33 @@ describe('overzicht', () => {
     expect(screen.getByText('la soglia')).toBeInTheDocument();
     expect(screen.getByText('4,8 s')).toBeInTheDocument();
     expect(screen.getByText(/^Begin — /)).toBeInTheDocument();
+  });
+
+  it('zet de vervalstrook onder het kopgetal, met de achterstand op vandaag', () => {
+    seedStore();
+    renderAt(<Dashboard />);
+
+    // Twee woorden binnen het venster (w1 achterstallig, w2 vandaag); w3 valt in
+    // november en telt dus niet mee.
+    expect(screen.getByText('wat er vervalt · lijn is één sessie')).toBeInTheDocument();
+    expect(screen.getByText('2 in 14 dagen')).toBeInTheDocument();
+  });
+
+  it('opent een dag als blad, want een staaf is te smal om aan te wijzen', () => {
+    seedStore();
+    renderAt(<Dashboard />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Toon een dag' }));
+
+    const sheet = screen.getByRole('dialog');
+    expect(within(sheet).getByText('vandaag')).toBeInTheDocument();
+    expect(within(sheet).getByText('2 woorden')).toBeInTheDocument();
+    // Zwakste eerst: w1 (stabiliteit 3) boven w2 (12).
+    expect(within(sheet).getByText('la soglia')).toBeInTheDocument();
+    expect(within(sheet).getByText('3 d')).toBeInTheDocument();
+
+    fireEvent.click(within(sheet).getByRole('button', { name: /morgen/ }));
+    expect(within(screen.getByRole('dialog')).getByText('Deze dag is leeg.')).toBeInTheDocument();
   });
 
   it('meldt bij niets te doen wat er morgen staat, zonder aanmoediging', () => {

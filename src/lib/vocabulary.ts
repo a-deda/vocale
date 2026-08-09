@@ -6,7 +6,19 @@ import type { FsrsStatesMap, ReviewLogRow } from '@/lib/store';
 /** De modus waarin herhalingen gepland worden; die draagt de vervaldatum. */
 const SCHEDULING_MODE: FsrsMode = 'typed_nl_it';
 
-const DAY_NAMES = ['zo', 'ma', 'di', 'wo', 'do', 'vr', 'za'];
+const DAY_NAMES  = ['zo', 'ma', 'di', 'wo', 'do', 'vr', 'za'];
+const DAY_FULL   = ['zondag', 'maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag'];
+const MONTH_NAMES = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+
+/**
+ * Een datumsleutel als lokale datum. `new Date('2026-08-08')` is UTC-middernacht
+ * en levert ten westen van Greenwich de dag ervóór op — precies de fout die een
+ * hele grafiek een dag laat verschuiven.
+ */
+function parseDay(date: string): Date {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
 
 export interface StateCounts {
   lapsed:   number;
@@ -22,6 +34,16 @@ export interface WeakWord {
   stability: number;
 }
 
+/** Eén dag in de vervalstrook: hoeveel er vervalt, en wat precies. */
+export interface DecayDay {
+  date:  string;
+  /** Weekdag in twee letters; de as toont er veertien naast elkaar. */
+  label: string;
+  count: number;
+  /** Zwakste eerst — die verdwijnt het eerst als de dag blijft liggen. */
+  words: WeakWord[];
+}
+
 export interface Rhythm {
   /** 14 dagen, oudste eerst; true = die dag geoefend. */
   days:     boolean[];
@@ -33,8 +55,9 @@ export interface Overview {
   dueToday:      number;
   backlog:       number;
   dueTomorrow:   number;
-  dueThisWeek:   number;
   counts:        StateCounts;
+  /** Veertien dagen vooruit; wat al openstond zit in de eerste dag. */
+  decay:         DecayDay[];
   /** Gemiddelde stabiliteit in dagen over alles wat een state heeft. */
   shelfLife:     number | null;
   weakest:       WeakWord[];
@@ -65,29 +88,49 @@ export function countStates(words: Word[], fsrsStates: FsrsStatesMap, today: str
 }
 
 /**
- * Hoeveel woorden er per dag vervallen, veertien dagen vooruit.
- * Alleen gebruikt door schermen die de vervalstrook tonen.
+ * Wat er per dag vervalt, veertien dagen vooruit — de vervalstrook onder het
+ * kopgetal. Wat al openstond telt bij vandaag: het wácht niet op zijn eigen dag,
+ * het ligt er nu. Zo is de eerste staaf precies het getal erboven.
+ *
+ * Per dag komen de woorden zelf mee, zwakste eerst, zodat het detailblad geen
+ * tweede ronde door de woordenschat hoeft te doen.
  */
 export function decayByDay(
   words: Word[], fsrsStates: FsrsStatesMap, today: string, days = 14,
-): { date: string; label: string; count: number }[] {
-  const strip: { date: string; label: string; count: number }[] = [];
+): DecayDay[] {
+  const strip: DecayDay[] = [];
   for (let i = 0; i < days; i++) {
     const date = addDays(today, i);
-    strip.push({
-      date,
-      label: i === 0 ? 'vandaag' : DAY_NAMES[new Date(date).getDay()],
-      count: 0,
-    });
+    strip.push({ date, label: DAY_NAMES[parseDay(date).getDay()], count: 0, words: [] });
   }
   const index = new Map(strip.map((d, i) => [d.date, i]));
+
   for (const word of words) {
-    const due = dueDateOf(statesOf(word, fsrsStates));
+    const states = statesOf(word, fsrsStates);
+    const due    = dueDateOf(states);
     if (due === null) continue;
-    const i = index.get(due);
-    if (i !== undefined) strip[i].count++;
+    const i = due < today ? 0 : index.get(due);
+    if (i === undefined) continue;
+    strip[i].words.push({
+      id: word.id,
+      original: word.original,
+      stability: strongestState(states)?.stability ?? 0,
+    });
+  }
+
+  for (const day of strip) {
+    day.words.sort((a, b) => a.stability - b.stability);
+    day.count = day.words.length;
   }
   return strip;
+}
+
+/** `vandaag` · `morgen` · `zaterdag 8 aug` — de kop van het detailblad. */
+export function dayTitle(date: string, today: string): string {
+  if (date === today)             return 'vandaag';
+  if (date === addDays(today, 1)) return 'morgen';
+  const d = parseDay(date);
+  return `${DAY_FULL[d.getDay()]} ${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
 }
 
 /** Woorden met de laagste stabiliteit: die verdwijnen het eerst. */
@@ -161,9 +204,8 @@ export function buildOverview(
   today:      string,
 ): Overview {
   const tomorrow = addDays(today, 1);
-  const weekEnd  = addDays(today, 6);
 
-  let dueToday = 0, backlog = 0, dueTomorrow = 0, dueThisWeek = 0;
+  let dueToday = 0, backlog = 0, dueTomorrow = 0;
   const stabilities: number[] = [];
 
   for (const word of words) {
@@ -176,7 +218,6 @@ export function buildOverview(
     if (due < today)       backlog++;
     else if (due === today) dueToday++;
     if (due === tomorrow)  dueTomorrow++;
-    if (due <= weekEnd)    dueThisWeek++;
   }
 
   const responseTimes = logs
@@ -191,8 +232,8 @@ export function buildOverview(
     dueToday,
     backlog,
     dueTomorrow,
-    dueThisWeek,
     counts:    countStates(words, fsrsStates, today),
+    decay:     decayByDay(words, fsrsStates, today),
     shelfLife: stabilities.length > 0
       ? Math.round(stabilities.reduce((a, b) => a + b, 0) / stabilities.length)
       : null,
