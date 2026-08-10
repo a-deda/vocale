@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildSession, emptyFsrsState, FSRS_MODES, GRADE, gradeForAnswer, initialStability,
-  intervalShort, intervalTone, previewInterval, recallMs, updateDifficulty, W,
+  buildSession, cappedDueDate, emptyFsrsState, FSRS_MODES, GRADE, gradeForAnswer, initialStability,
+  intervalShort, intervalTone, MAX_INTERVAL_DAYS, nextInterval, previewInterval, recallMs,
+  reviewCard, updateDifficulty, W,
 } from '@/lib/fsrs';
 import { answerLength } from '@/lib/translation-utils';
 import type { FsrsMode, FsrsState } from '@/lib/fsrs';
@@ -284,6 +285,46 @@ describe('intervalShort en intervalTone', () => {
     for (let i = 1; i < tones.length; i++) {
       expect(tones[i]).toBeGreaterThan(tones[i - 1]);
     }
+  });
+});
+
+describe('de plandatum heeft een plafond', () => {
+  /** Ruim voorbij het plafond: bij 90% retentie is het interval de stabiliteit. */
+  const ROTSVAST: FsrsState = {
+    stability: 880, difficulty: 4,
+    dueDate: '2026-06-15', lastReviewedAt: '2026-06-15T10:00:00.000Z',
+  };
+
+  it('klemt het interval op een jaar, en laat alles eronder met rust', () => {
+    expect(nextInterval(2000)).toBe(MAX_INTERVAL_DAYS);
+    expect(nextInterval(880)).toBe(MAX_INTERVAL_DAYS);
+    expect(nextInterval(300)).toBe(300);
+    // De ondergrens blijft ook staan: nooit korter dan een dag.
+    expect(nextInterval(0.2)).toBe(1);
+  });
+
+  it('plant een review nooit verder dan een jaar vooruit', () => {
+    const { newState, logPartial } = reviewCard(ROTSVAST, GRADE.EASY, TODAY);
+    expect(newState.dueDate).toBe('2027-06-15');
+    expect(logPartial.intervalDays).toBe(MAX_INTERVAL_DAYS);
+  });
+
+  it('laat de stabiliteit zelf ongemoeid — die draagt vast, houdbaarheid en beheersing', () => {
+    const { newState, logPartial } = reviewCard(ROTSVAST, GRADE.EASY, TODAY);
+    expect(newState.stability!).toBeGreaterThan(MAX_INTERVAL_DAYS);
+    expect(logPartial.sAfter).toBeGreaterThan(ROTSVAST.stability!);
+  });
+
+  it('haalt een vervaldatum van vóór het plafond terug naar het plafond', () => {
+    // Twee jaar vooruit gezet, gerekend vanaf de laatste review.
+    expect(cappedDueDate({ ...ROTSVAST, dueDate: '2028-06-14' })).toBe('2027-06-15');
+    // Binnen het jaar verandert er niets.
+    expect(cappedDueDate({ ...ROTSVAST, dueDate: '2026-09-01' })).toBe('2026-09-01');
+  });
+
+  it('laat een state zonder datum of zonder laatste review met rust', () => {
+    expect(cappedDueDate({ ...ROTSVAST, dueDate: null })).toBeNull();
+    expect(cappedDueDate({ ...ROTSVAST, lastReviewedAt: null })).toBe('2026-06-15');
   });
 });
 
