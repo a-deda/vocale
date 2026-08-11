@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { ANCHOR_DAYS, DESIRED_RETENTION, LAPSED_RETRIEVABILITY, W } from '@/lib/fsrs';
+import { ANCHOR_DAYS, DESIRED_RETENTION, LAPSED_RETRIEVABILITY, MAX_INTERVAL_DAYS, W } from '@/lib/fsrs';
 import { Data, Label, Screen } from '@/components/vocale/Primitives';
 
 /**
@@ -21,7 +21,8 @@ export default function FsrsParams() {
       <div className="rounded-card bg-card px-5 py-[6px]">
         <Line label="gewenste retentie" value={`${Math.round(DESIRED_RETENTION * 100)}%`} />
         <Line label="drempel vervallen" value={`${Math.round(LAPSED_RETRIEVABILITY * 100)}%`} />
-        <Line label="drempel vast" value={`${ANCHOR_DAYS} d`} last />
+        <Line label="drempel vast" value={`${ANCHOR_DAYS} d`} />
+        <Line label="langste interval" value={`${MAX_INTERVAL_DAYS} d`} last />
       </div>
 
       <Label className="mb-[10px] mt-[26px]">gewichten · w0–w18</Label>

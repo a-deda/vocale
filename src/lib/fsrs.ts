@@ -92,13 +92,43 @@ export function retrievability(t: number, S: number): number {
   return Math.pow(1 + F * (t / S), C);
 }
 
+/**
+ * Verder dan een jaar plannen we niet vooruit.
+ *
+ * Bij 90% gewenste retentie reduceert `nextInterval` tot precies de stabiliteit,
+ * dus zonder plafond schuift een sterk woord jaren weg — en één misrekening van
+ * het model is dan een woord dat je kwijt bent zonder het te merken. Het plafond
+ * raakt alleen de plandatum: de stabiliteit blijft staan, want die draagt 'vast',
+ * de houdbaarheid en de beheersingscore. `getFsrsMasteryScore` hanteert dezelfde
+ * 365 dagen als plafond van beheersing.
+ *
+ * De prijs is dat een vast woord terugkomt terwijl je het nog voor ~95% weet in
+ * plaats van 90%. Dat remt meteen de groei van de stabiliteit (de `tR`-term in
+ * `stabilityAfterSuccess` ongeveer halveert), dus het loopt niet weg.
+ */
+export const MAX_INTERVAL_DAYS = 365;
+
 export function nextInterval(S: number): number {
   const raw = (S / F) * (Math.pow(DESIRED_RETENTION, 1 / C) - 1);
-  return Math.max(1, Math.round(raw));
+  return clamp(Math.round(raw), 1, MAX_INTERVAL_DAYS);
 }
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
+}
+
+/**
+ * Een vervaldatum van vóór het plafond, teruggebracht tot het plafond.
+ *
+ * Woorden die eerder op twee jaar vooruit werden gezet blijven anders staan waar
+ * ze staan; het plafond zou dan pas na jaren overal doorwerken. Dit rekent bij het
+ * inlezen af met die erfenis. De rij in de database blijft ongemoeid tot de
+ * eerstvolgende review er vanzelf een nette datum overheen schrijft.
+ */
+export function cappedDueDate(state: FsrsState): string | null {
+  if (!state.dueDate || !state.lastReviewedAt) return state.dueDate;
+  const ceiling = addDays(state.lastReviewedAt.split('T')[0], MAX_INTERVAL_DAYS);
+  return state.dueDate > ceiling ? ceiling : state.dueDate;
 }
 
 /**

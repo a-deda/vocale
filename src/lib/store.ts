@@ -3,7 +3,7 @@ import { Word, UserStats, StudySession } from '@/types/word';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import type { FsrsMode, FsrsState, FsrsReviewLog } from '@/lib/fsrs';
-import { FSRS_MODES, emptyFsrsState } from '@/lib/fsrs';
+import { FSRS_MODES, cappedDueDate, emptyFsrsState } from '@/lib/fsrs';
 import {
   PendingSession, makeClientId, readPendingSessions,
   queuePendingSession, unqueuePendingSession,
@@ -179,15 +179,18 @@ function dbToReviewLog(row: any): ReviewLogRow {
 }
 
 function dbToFsrsState(row: any): { cardId: string; mode: FsrsMode; state: FsrsState } {
+  const state: FsrsState = {
+    stability:      row.stability,
+    difficulty:     row.difficulty,
+    dueDate:        row.due_date,
+    lastReviewedAt: row.last_reviewed_at,
+  };
   return {
     cardId: row.card_id,
     mode:   row.mode as FsrsMode,
-    state: {
-      stability:      row.stability,
-      difficulty:     row.difficulty,
-      dueDate:        row.due_date,
-      lastReviewedAt: row.last_reviewed_at,
-    },
+    // Rijen van vóór het intervalplafond staan soms jaren vooruit; die worden
+    // hier teruggehaald. De database blijft ongemoeid tot de volgende review.
+    state:  { ...state, dueDate: cappedDueDate(state) },
   };
 }
 
