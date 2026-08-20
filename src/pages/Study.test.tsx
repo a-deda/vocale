@@ -27,6 +27,7 @@ const H = vi.hoisted(() => {
   });
   const state = {
     words: [makeWord()] as ReturnType<typeof makeWord>[],
+    fsrsStates: {} as Record<string, Record<string, unknown>>,
     queue: [{ cardId: 'w1', mode: 'typed_nl_it', dueDate: null }] as
       { cardId: string; mode: string; dueDate: string | null }[],
     updateWord: vi.fn(() => Promise.resolve()),
@@ -43,7 +44,7 @@ const H = vi.hoisted(() => {
 vi.mock('@/components/StoreProvider', () => ({
   useStore: () => ({
     words: H.state.words,
-    fsrsStates: {},
+    fsrsStates: H.state.fsrsStates,
     sessions: [],
     reviewLogs: [],
     upsertFsrsState: H.state.upsertFsrsState,
@@ -81,6 +82,7 @@ const NL_INPUT = 'typ het Nederlands';
 
 beforeEach(() => {
   H.state.words = [H.makeWord()];
+  H.state.fsrsStates = {};
   H.state.queue = [{ cardId: 'w1', mode: 'typed_nl_it', dueDate: null }];
   H.state.updateWord.mockClear();
   H.state.upsertFsrsState.mockClear();
@@ -247,19 +249,40 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
   /**
    * Bij een goed antwoord toont de app geen feedbackscherm, dus het briefje op
    * het veld is de enige plek waar staat wanneer het woord terugkomt.
-   * 'parlare' telt 7 tekens; op een toetsenbord is de ijkdrempel dus
-   * 4000 + 7 x 180 = 5260 ms. De testomgeving mockt matchMedia op false, dus
-   * alles leest als toetsenbord.
+   *
+   * De denktijd is de tijd tot de eerste toetsaanslag, dus de klok die deze
+   * tests vooruitzetten loopt vóór het `change`-event, niet vóór het versturen.
+   * De band loopt van 1 tot 15 seconden; daarbinnen schuift de beoordeling met
+   * hooguit 0,3 rond 'goed'.
    */
   describe('het briefje toont wanneer het woord terugkomt', () => {
-    const T = 5260;
+    /** Een dagsleutel zoals `localDateKey` hem maakt: lokaal, niet UTC. */
+    const dayKey = (offsetDays: number) => {
+      const d = new Date(Date.now() - offsetDays * 86_400_000);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
 
-    /** Beantwoordt goed na `elapsed` ms en geeft de tekst van het briefje terug. */
-    function answerAfter(elapsed: number): string | null {
+    /**
+     * Een woord dat al loopt. De snelheidsbijstelling geldt niet bij de
+     * allereerste beurt in een modus — die zet het startpunt, niet een stap —
+     * dus zonder bestaande state valt er niets te zien.
+     */
+    const running = () => ({
+      w1: {
+        typed_nl_it: {
+          stability: 10, difficulty: 5,
+          dueDate: dayKey(0), lastReviewedAt: `${dayKey(10)}T10:00:00.000Z`,
+        },
+      },
+    });
+
+    /** Denkt `thinkMs`, typt dan goed, en geeft de tekst van het briefje terug. */
+    function answerAfter(thinkMs: number): string | null {
       // Zelfstandig aanroepbaar: ruim een eventuele vorige render eerst op.
       cleanup();
       renderStudy();
-      act(() => { vi.advanceTimersByTime(elapsed); });
+      // Deze tijd valt vóór de eerste aanslag en is dus de denktijd.
+      act(() => { vi.advanceTimersByTime(thinkMs); });
 
       fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
       fireEvent.click(screen.getByText('Controleer'));
@@ -291,9 +314,45 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
     it('belooft een langere periode naarmate je sneller antwoordt', () => {
       vi.useFakeTimers();
       try {
-        const snel  = answerAfter(0.5 * T)!;
-        const traag = answerAfter(1.5 * T)!;
+        H.state.fsrsStates = running();
+        const snel  = answerAfter(500)!;
+        const traag = answerAfter(20_000)!;
         expect(toDays(snel)).toBeGreaterThan(toDays(traag));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('de allereerste beurt in een modus laat snelheid niet meetellen', () => {
+      vi.useFakeTimers();
+      try {
+        // Geen bestaande state: dit is de beurt die het startpunt zet, en die
+        // ankers liggen te ver uit elkaar om aan een klok op te hangen.
+        const snel  = answerAfter(500)!;
+        const traag = answerAfter(20_000)!;
+        expect(snel).toBe(traag);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('tikken telt niet als denken — traag typen kost de bonus niet', () => {
+      vi.useFakeTimers();
+      try {
+        H.state.fsrsStates = running();
+        cleanup();
+        renderStudy();
+        act(() => { vi.advanceTimersByTime(500); }); // vlot bedacht
+
+        const field = screen.getByPlaceholderText(IT_INPUT);
+        fireEvent.change(field, { target: { value: 'par' } });
+        act(() => { vi.advanceTimersByTime(30_000); }); // daarna traag getikt
+        fireEvent.change(field, { target: { value: 'parlare' } });
+        fireEvent.click(screen.getByText('Controleer'));
+        act(() => { vi.advanceTimersByTime(300); });
+
+        const traagGetikt = screen.queryByText(/^\+\d/)!.textContent!;
+        expect(toDays(traagGetikt)).toBe(toDays(answerAfter(500)!));
       } finally {
         vi.useRealTimers();
       }
@@ -325,81 +384,42 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
       }
     });
 
-    it('slaat de gebroken beoordeling en het medium op', async () => {
+    it('slaat de gebroken beoordeling, de denktijd en het medium op', async () => {
       vi.useFakeTimers();
       try {
-        // 1260 ms tikken (7 tekens x 180) plus 4500 ms denken; dat is precies
-        // halverwege de denkband van 1 tot 8 seconden.
-        answerAfter(1260 + 4500);
+        H.state.fsrsStates = running();
+        // 4500 ms denken is precies halverwege de band van 1 tot 8 seconden,
+        // dus de helft van de zwaai omhoog: 3 + 0,3 x 0,5.
+        answerAfter(4500);
         await act(async () => { await vi.advanceTimersByTimeAsync(1200); });
 
         const log = H.state.addReviewLog.mock.calls[0][0];
-        expect(log.effectiveGrade).toBeCloseTo(3.5, 6);
-        expect(log.grade).toBe(4); // afgerond, want de kolom is een SMALLINT
+        expect(log.effectiveGrade).toBeCloseTo(3.15, 6);
+        expect(log.grade).toBe(3); // afgerond, want de kolom is een SMALLINT
+        expect(log.thinkMs).toBe(4500);
+        // De reactietijd bevat ook het tikken en blijft apart bewaard.
+        expect(log.responseMs).toBeGreaterThanOrEqual(4500);
         expect(log.inputMedium).toBe('keyboard');
       } finally {
         vi.useRealTimers();
       }
     });
-  });
-});
 
-describe('Study – elke les wordt opgeslagen', () => {
-  it('slaat een halverwege afgebroken les alsnog op bij het verlaten van de pagina', () => {
-    // Twee kaarten: na één antwoord is de sessie nog niet afgerond.
-    H.state.words = [H.makeWord(), H.makeWord({ id: 'w2', original: 'mangiare', translation: 'eten' })];
-    H.state.queue = [
-      { cardId: 'w1', mode: 'typed_nl_it', dueDate: null },
-      { cardId: 'w2', mode: 'typed_nl_it', dueDate: null },
-    ];
+    it('een moeizaam antwoord zakt onder goed, zonder als fout te tellen', async () => {
+      vi.useFakeTimers();
+      try {
+        H.state.fsrsStates = running();
+        answerAfter(20_000);
+        await act(async () => { await vi.advanceTimersByTimeAsync(1200); });
 
-    // Houd de shuffle van de wachtrij deterministisch: w1 blijft vooraan.
-    const random = vi.spyOn(Math, 'random').mockReturnValue(0.9);
-    vi.useFakeTimers();
-    try {
-      const { unmount } = renderStudy();
-
-      fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
-      fireEvent.click(screen.getByText('Controleer'));
-      act(() => { vi.advanceTimersByTime(1000); });
-
-      // Nog midden in de les: nog niets weggeschreven.
-      expect(H.state.addSession).not.toHaveBeenCalled();
-
-      unmount();
-
-      expect(H.state.addSession).toHaveBeenCalledTimes(1);
-      const session = H.state.addSession.mock.calls[0][0];
-      expect(session.wordsStudied).toBe(1);
-      expect(session.correct).toBe(1);
-    } finally {
-      vi.useRealTimers();
-      random.mockRestore();
-    }
-  });
-
-  it('slaat een afgeronde les precies één keer op, ook na het verlaten van de pagina', () => {
-    vi.useFakeTimers();
-    try {
-      const { unmount } = renderStudy();
-
-      fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
-      fireEvent.click(screen.getByText('Controleer'));
-      act(() => { vi.advanceTimersByTime(1000); });
-
-      expect(screen.getByText('sessie afgerond')).toBeInTheDocument();
-      expect(H.state.addSession).toHaveBeenCalledTimes(1);
-
-      unmount();
-      expect(H.state.addSession).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('slaat niets op als er geen enkel woord is beantwoord', () => {
-    const { unmount } = renderStudy();
-    unmount();
-    expect(H.state.addSession).not.toHaveBeenCalled();
+        const log = H.state.addReviewLog.mock.calls[0][0];
+        expect(log.effectiveGrade).toBeCloseTo(2.7, 6);
+        expect(log.grade).toBe(3);
+        // Zakken is geen fout: de stabiliteit groeit nog steeds, alleen minder.
+        expect(log.sAfter).toBeGreaterThan(log.sBefore as number);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildSession, cappedDueDate, emptyFsrsState, FSRS_MODES, GRADE, gradeForAnswer, initialStability,
-  intervalShort, intervalTone, MAX_INTERVAL_DAYS, nextInterval, previewInterval, recallMs,
-  reviewCard, updateDifficulty, W,
+  intervalShort, intervalTone, MAX_INTERVAL_DAYS, nextInterval, previewInterval,
+  reviewCard, speedFactor, SPEED_SWING, updateDifficulty, W,
 } from '@/lib/fsrs';
-import { answerLength } from '@/lib/translation-utils';
 import type { FsrsMode, FsrsState } from '@/lib/fsrs';
 
 const TODAY = '2026-06-15';
@@ -150,115 +149,118 @@ describe('buildSession — invariant over willekeurige mix', () => {
   });
 });
 
-describe('recallMs — tiktijd telt niet mee als denktijd', () => {
-  it('trekt de geschatte tiktijd van de reactietijd af', () => {
-    // 7 tekens x 180 ms = 1260 ms tikken; wat overblijft is herinneren.
-    expect(recallMs(5000, 7, 'keyboard')).toBe(5000 - 1260);
+describe('speedFactor — denktijd, twee kanten op', () => {
+  it('binnen een seconde bedacht is volledig moeiteloos', () => {
+    expect(speedFactor(0)).toBe(1);
+    expect(speedFactor(500)).toBe(1);
+    expect(speedFactor(1000)).toBe(1);
   });
 
-  it('rekent op glas met een hoger tiktarief', () => {
-    expect(recallMs(5000, 7, 'touch')).toBeLessThan(recallMs(5000, 7, 'keyboard'));
+  it('acht seconden denken is precies neutraal', () => {
+    expect(speedFactor(8000)).toBe(0);
   });
 
-  it('een lang woord levert bij dezelfde reactietijd minder denktijd op', () => {
-    expect(recallMs(6000, 17, 'keyboard')).toBeLessThan(recallMs(6000, 4, 'keyboard'));
+  it('vanaf vijftien seconden was het met moeite', () => {
+    expect(speedFactor(15000)).toBe(-1);
+    expect(speedFactor(60000)).toBe(-1);
+  });
+
+  it('loopt monotoon af van moeiteloos naar met moeite', () => {
+    const ms = [500, 1500, 3000, 5000, 8000, 10000, 13000, 20000];
+    const factors = ms.map(speedFactor);
+    for (let i = 1; i < factors.length; i++) {
+      expect(factors[i]).toBeLessThanOrEqual(factors[i - 1]);
+    }
+    expect(factors[0]).toBe(1);
+    expect(factors[factors.length - 1]).toBe(-1);
+  });
+
+  it('zonder gemeten tijd is er geen bijstelling', () => {
+    expect(speedFactor(null)).toBe(0);
+    expect(speedFactor(NaN)).toBe(0);
+    expect(speedFactor(Infinity)).toBe(0);
   });
 });
 
-describe('gradeForAnswer — snelheid schaalt vloeiend tussen goed en moeiteloos', () => {
-  const WORD = 'parlare'.length;
-  /** Reactietijd die na aftrek van de tiktijd `recall` ms denktijd overhoudt. */
-  const at = (recall: number, medium: 'keyboard' | 'touch' = 'keyboard') =>
-    recall + WORD * (medium === 'keyboard' ? 180 : 340);
-
-  it('binnen een seconde bedacht is volledig moeiteloos', () => {
-    expect(gradeForAnswer('typed_nl_it', 'correct', at(500), WORD, 'keyboard')).toBe(GRADE.EASY);
-    expect(gradeForAnswer('typed_nl_it', 'correct', at(1000), WORD, 'keyboard')).toBe(GRADE.EASY);
+describe('gradeForAnswer — snelheid is een nuance, geen overname', () => {
+  it('een vlot antwoord tilt de beoordeling hooguit met de zwaai op', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', 300))
+      .toBeCloseTo(GRADE.GOOD + SPEED_SWING, 10);
   });
 
-  it('acht seconden denken levert geen bonus meer op', () => {
-    expect(gradeForAnswer('typed_nl_it', 'correct', at(8000), WORD, 'keyboard')).toBe(GRADE.GOOD);
-    expect(gradeForAnswer('typed_nl_it', 'correct', at(20000), WORD, 'keyboard')).toBe(GRADE.GOOD);
+  it('een moeizaam antwoord duwt hem even ver omlaag', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', 20000))
+      .toBeCloseTo(GRADE.GOOD - SPEED_SWING, 10);
+  });
+
+  it('blijft altijd binnen de zwaai rond goed — nooit een hele 4', () => {
+    for (const ms of [0, 1, 100, 5000, 8000, 20000, 1e9]) {
+      const g = gradeForAnswer('typed_nl_it', 'correct', ms);
+      expect(g).toBeGreaterThanOrEqual(GRADE.GOOD - SPEED_SWING);
+      expect(g).toBeLessThanOrEqual(GRADE.GOOD + SPEED_SWING);
+      expect(g).toBeLessThan(GRADE.EASY);
+    }
   });
 
   it('daartussen loopt het monotoon af', () => {
-    const grades = [1000, 2000, 3000, 4500, 6000, 7000, 8000]
-      .map(r => gradeForAnswer('typed_nl_it', 'correct', at(r), WORD, 'keyboard'));
+    const grades = [1000, 2000, 4000, 6000, 8000, 11000, 15000]
+      .map(ms => gradeForAnswer('typed_nl_it', 'correct', ms));
     for (let i = 1; i < grades.length; i++) {
       expect(grades[i]).toBeLessThan(grades[i - 1]);
     }
-    expect(grades[0]).toBe(GRADE.EASY);
-    expect(grades[grades.length - 1]).toBe(GRADE.GOOD);
   });
 
-  it('dezelfde denktijd telt op glas even zwaar — alleen de tiktijd verschilt', () => {
-    expect(gradeForAnswer('typed_nl_it', 'correct', at(3000, 'touch'), WORD, 'touch'))
-      .toBeCloseTo(gradeForAnswer('typed_nl_it', 'correct', at(3000), WORD, 'keyboard'), 10);
-  });
-
-  it('een herhaling binnen dezelfde sessie krijgt geen bonus', () => {
+  it('een herhaling binnen dezelfde sessie krijgt geen bijstelling', () => {
     // Na een kennismaking komt het woord uit het werkgeheugen; snelheid zegt
     // dan niets over wat er over weken nog van over is.
-    expect(gradeForAnswer('typed_nl_it', 'correct', at(200), WORD, 'keyboard', true))
-      .toBe(GRADE.GOOD);
+    expect(gradeForAnswer('typed_nl_it', 'correct', 200, { repeat: true })).toBe(GRADE.GOOD);
+    expect(gradeForAnswer('typed_nl_it', 'correct', 20000, { repeat: true })).toBe(GRADE.GOOD);
   });
 
-  it('blijft altijd binnen goed en moeiteloos', () => {
-    for (const ms of [0, 1, 100, 5000, 20000, 1e9]) {
-      const g = gradeForAnswer('typed_nl_it', 'correct', ms, WORD, 'keyboard');
-      expect(g).toBeGreaterThanOrEqual(GRADE.GOOD);
-      expect(g).toBeLessThanOrEqual(GRADE.EASY);
-    }
+  it('de allereerste beurt in een modus krijgt geen bijstelling', () => {
+    // Die beurt zet het startpunt, en de ankers voor goed en moeiteloos liggen
+    // vijf keer uit elkaar. Eén blootstelling draagt die hefboom niet.
+    expect(gradeForAnswer('typed_nl_it', 'correct', 200, { firstReview: true })).toBe(GRADE.GOOD);
+    expect(gradeForAnswer('typed_nl_it', 'correct', 20000, { firstReview: true })).toBe(GRADE.GOOD);
   });
 
   it('snelheid redt een bijna- of fout antwoord niet', () => {
-    expect(gradeForAnswer('typed_nl_it', 'almost', 100, WORD, 'keyboard')).toBe(GRADE.HARD);
-    expect(gradeForAnswer('typed_nl_it', 'wrong', 100, WORD, 'keyboard')).toBe(GRADE.FORGOT);
+    expect(gradeForAnswer('typed_nl_it', 'almost', 100)).toBe(GRADE.HARD);
+    expect(gradeForAnswer('typed_nl_it', 'wrong', 100)).toBe(GRADE.FORGOT);
   });
 
-  it('zonder gemeten tijd is er geen verhoging', () => {
-    expect(gradeForAnswer('typed_nl_it', 'correct', null, WORD, 'keyboard')).toBe(GRADE.GOOD);
+  it('zonder gemeten tijd blijft het een gewone goede beurt', () => {
+    expect(gradeForAnswer('typed_nl_it', 'correct', null)).toBe(GRADE.GOOD);
   });
 
-  it('meerkeuze wordt nooit verhoogd, hoe snel ook', () => {
-    expect(gradeForAnswer('mc', 'correct', 10, WORD, 'keyboard')).toBe(GRADE.GOOD);
-    expect(gradeForAnswer('mc', 'wrong', 10, WORD, 'keyboard')).toBe(GRADE.FORGOT);
+  it('meerkeuze wordt nooit bijgesteld, hoe snel ook', () => {
+    expect(gradeForAnswer('mc', 'correct', 10)).toBe(GRADE.GOOD);
+    expect(gradeForAnswer('mc', 'wrong', 10)).toBe(GRADE.FORGOT);
   });
 });
 
-describe('een gloednieuw woord toont een zichtbare schaal', () => {
-  const TODAY_ = '2026-06-15';
-  const WORD = 'parlare'.length;
-  const at = (recall: number) => recall + WORD * 180;
+describe('een woord dat al loopt toont een zichtbare schaal', () => {
+  const RUNNING: FsrsState = {
+    stability: 10, difficulty: 5,
+    dueDate: TODAY, lastReviewedAt: '2026-06-05T10:00:00.000Z',
+  };
 
   it('verschillende denktijden leveren verschillende labels op', () => {
-    const labels = [1000, 3000, 5000, 7000, 8000].map(r => {
-      const g = gradeForAnswer('typed_nl_it', 'correct', at(r), WORD, 'keyboard');
-      return intervalShort(previewInterval(emptyFsrsState(), g, TODAY_));
+    const labels = [1000, 4000, 8000, 12000, 15000].map(ms => {
+      const g = gradeForAnswer('typed_nl_it', 'correct', ms);
+      return intervalShort(previewInterval(RUNNING, g, TODAY));
     });
     // Geen enkel label mag samenvallen met zijn buur, anders is de schaal
     // onzichtbaar — dat was precies de klacht.
     expect(new Set(labels).size).toBe(labels.length);
   });
-});
 
-describe('answerLength — wat je werkelijk moet typen', () => {
-  it('neemt de kortste betekenis, niet het hele veld', () => {
-    // "praten; kletsen" is 15 tekens, maar je typt er 6.
-    expect(answerLength('praten; kletsen')).toBe(6);
-  });
-
-  it('telt annotaties niet mee', () => {
-    expect(answerLength('il libro (s.m.)')).toBe('il libro'.length);
-  });
-
-  it('werkt bij een enkele betekenis', () => {
-    expect(answerLength('parlare')).toBe(7);
-  });
-
-  it('valt terug op een leeg veld zonder te klappen', () => {
-    expect(answerLength('')).toBe(0);
-    expect(answerLength('   ')).toBe(0);
+  it('een moeizaam antwoord plant korter dan een vlot antwoord', () => {
+    const traag = previewInterval(RUNNING, gradeForAnswer('typed_nl_it', 'correct', 20000), TODAY);
+    const gewoon = previewInterval(RUNNING, GRADE.GOOD, TODAY);
+    const vlot  = previewInterval(RUNNING, gradeForAnswer('typed_nl_it', 'correct', 500), TODAY);
+    expect(traag).toBeLessThan(gewoon);
+    expect(gewoon).toBeLessThan(vlot);
   });
 });
 
@@ -303,16 +305,21 @@ describe('de plandatum heeft een plafond', () => {
     expect(nextInterval(0.2)).toBe(1);
   });
 
+  // ROTSVAST staat op vandaag als laatste review, wat het een tweede beurt op
+  // dezelfde dag zou maken; deze twee gaan over een échte review, dus komt de
+  // vorige beurt een jaar terug te liggen.
+  const ROTSVAST_DUE: FsrsState = { ...ROTSVAST, lastReviewedAt: '2025-06-15T10:00:00.000Z' };
+
   it('plant een review nooit verder dan een jaar vooruit', () => {
-    const { newState, logPartial } = reviewCard(ROTSVAST, GRADE.EASY, TODAY);
+    const { newState, logPartial } = reviewCard(ROTSVAST_DUE, GRADE.EASY, TODAY);
     expect(newState.dueDate).toBe('2027-06-15');
     expect(logPartial.intervalDays).toBe(MAX_INTERVAL_DAYS);
   });
 
   it('laat de stabiliteit zelf ongemoeid — die draagt vast, houdbaarheid en beheersing', () => {
-    const { newState, logPartial } = reviewCard(ROTSVAST, GRADE.EASY, TODAY);
+    const { newState, logPartial } = reviewCard(ROTSVAST_DUE, GRADE.EASY, TODAY);
     expect(newState.stability!).toBeGreaterThan(MAX_INTERVAL_DAYS);
-    expect(logPartial.sAfter).toBeGreaterThan(ROTSVAST.stability!);
+    expect(logPartial.sAfter).toBeGreaterThan(ROTSVAST_DUE.stability!);
   });
 
   it('haalt een vervaldatum van vóór het plafond terug naar het plafond', () => {
@@ -369,5 +376,124 @@ describe('de continue schaal past in FSRS', () => {
       expect(d).toBeGreaterThanOrEqual(1);
       expect(d).toBeLessThanOrEqual(10);
     }
+  });
+});
+
+describe('een tweede beurt op dezelfde dag laat het geheugenmodel met rust', () => {
+  const REVIEWED_TODAY: FsrsState = {
+    stability: 3, difficulty: 6,
+    dueDate: '2026-06-18', lastReviewedAt: TODAY + 'T09:00:00.000Z',
+  };
+
+  it('houdt stabiliteit, moeilijkheid en plandatum precies waar ze staan', () => {
+    const { newState } = reviewCard(REVIEWED_TODAY, GRADE.GOOD, TODAY);
+    expect(newState.stability).toBe(REVIEWED_TODAY.stability);
+    expect(newState.difficulty).toBe(REVIEWED_TODAY.difficulty);
+    expect(newState.dueDate).toBe(REVIEWED_TODAY.dueDate);
+  });
+
+  it('schuift alleen het tijdstip op, zodat de volgende echte review goed rekent', () => {
+    const { newState } = reviewCard(REVIEWED_TODAY, GRADE.GOOD, TODAY);
+    expect(newState.lastReviewedAt).not.toBe(REVIEWED_TODAY.lastReviewedAt);
+    expect(newState.lastReviewedAt!.split('T')[0]).toBe(TODAY);
+    expect(Date.parse(newState.lastReviewedAt!)).not.toBeNaN();
+  });
+
+  it('een herkansing na een fout duwt het woord niet alsnog vooruit', () => {
+    // Dit was het lek: fout → 3 dagen, en de goede herkansing een minuut later
+    // rekende met een tijdsverschil van één dag en tilde het naar 5.
+    const before = reviewCard(
+      { stability: 20, difficulty: 5, dueDate: TODAY, lastReviewedAt: '2026-05-26T10:00:00.000Z' },
+      GRADE.FORGOT, TODAY,
+    ).newState;
+    const after = reviewCard(before, GRADE.GOOD, TODAY).newState;
+    expect(after.stability).toBe(before.stability);
+    expect(after.dueDate).toBe(before.dueDate);
+  });
+
+  it('ook een tweede fout telt niet dubbel', () => {
+    const { newState } = reviewCard(REVIEWED_TODAY, GRADE.FORGOT, TODAY);
+    expect(newState.stability).toBe(REVIEWED_TODAY.stability);
+  });
+
+  it('logt de beurt wél, met het interval dat blijft staan', () => {
+    const { logPartial } = reviewCard(REVIEWED_TODAY, 3.3, TODAY);
+    expect(logPartial.effectiveGrade).toBe(3.3);
+    expect(logPartial.grade).toBe(3);
+    expect(logPartial.sAfter).toBe(REVIEWED_TODAY.stability);
+    expect(logPartial.intervalDays).toBe(3); // 15 → 18 juni
+  });
+
+  it('raakt de eerste beurt van de dag niet', () => {
+    const gisteren: FsrsState = {
+      stability: 3, difficulty: 6,
+      dueDate: TODAY, lastReviewedAt: '2026-06-14T09:00:00.000Z',
+    };
+    const { newState } = reviewCard(gisteren, GRADE.GOOD, TODAY);
+    expect(newState.stability).toBeGreaterThan(gisteren.stability!);
+  });
+
+  it('raakt een gloednieuw woord niet', () => {
+    const { newState } = reviewCard(emptyFsrsState(), GRADE.GOOD, TODAY);
+    expect(newState.stability).toBeCloseTo(W[2], 10);
+  });
+});
+
+describe('de demping onder goed loopt net zo vloeiend als de bonus erboven', () => {
+  const MATURE: FsrsState = {
+    stability: 10, difficulty: 5,
+    dueDate: '2026-06-15', lastReviewedAt: '2026-06-05T10:00:00.000Z',
+  };
+
+  it('een hele 2 en een hele 3 geven nog steeds de bekende intervallen', () => {
+    // Met de hand uit de formules gerekend, zodat de interpolatie de uitersten
+    // niet ongemerkt kan verschuiven.
+    expect(previewInterval(MATURE, GRADE.HARD, TODAY)).toBe(15);
+    expect(previewInterval(MATURE, GRADE.GOOD, TODAY)).toBe(33);
+  });
+
+  it('gebroken grades tussen moeizaam en goed lopen monotoon op', () => {
+    const days = [2, 2.25, 2.5, 2.7, 3].map(g => previewInterval(MATURE, g, TODAY));
+    for (let i = 1; i < days.length; i++) {
+      expect(days[i]).toBeGreaterThanOrEqual(days[i - 1]);
+    }
+    expect(days[0]).toBe(15);
+    expect(days[days.length - 1]).toBe(33);
+  });
+});
+
+describe('woorden schuiven niet meer in drie beurten een jaar weg', () => {
+  /** Speel een reeks goede beurten af, telkens precies op de plandatum. */
+  function trajectory(thinkMs: number, beurten: number): number[] {
+    let state = emptyFsrsState();
+    let date  = TODAY;
+    const out: number[] = [];
+    for (let i = 0; i < beurten; i++) {
+      const grade = gradeForAnswer('typed_nl_it', 'correct', thinkMs, { firstReview: i === 0 });
+      const { newState, logPartial } = reviewCard(state, grade, date);
+      out.push(logPartial.intervalDays);
+      state = newState;
+      date  = newState.dueDate!;
+    }
+    return out;
+  }
+
+  it('een vlotte leerling loopt op, maar niet in één sprong naar het plafond', () => {
+    const days = trajectory(2000, 4);
+    // Voorheen: 9 · 59 · 334 · plafond. Drie beurten en het woord was weg.
+    expect(days[0]).toBeLessThanOrEqual(4);
+    expect(days[3]).toBeLessThan(MAX_INTERVAL_DAYS);
+    for (let i = 1; i < days.length; i++) expect(days[i]).toBeGreaterThan(days[i - 1]);
+  });
+
+  it('vlot blijft wel verder komen dan moeizaam', () => {
+    const vlot  = trajectory(500, 4);
+    const traag = trajectory(20000, 4);
+    expect(vlot[3]).toBeGreaterThan(traag[3]);
+  });
+
+  it('de eerste beurt van een nieuw woord staat vast op de goed-ankerwaarde', () => {
+    expect(trajectory(200, 1)[0]).toBe(trajectory(30000, 1)[0]);
+    expect(trajectory(200, 1)[0]).toBe(nextInterval(W[2]));
   });
 });
