@@ -1,0 +1,14 @@
+-- Denktijd wordt nu gemeten in plaats van geschat.
+--
+-- `response_ms` loopt van het verschijnen van de kaart tot de bevestiging en
+-- bevat dus ook de tijd die het typen kostte. Die tiktijd werd er met een
+-- geschat tarief per teken weer afgetrokken, waardoor iemand die sneller typte
+-- dan de schatting op een negatieve denktijd uitkwam — en dus altijd de volle
+-- snelheidsbonus kreeg. De typsnelheid lekte zo in de geheugenbeoordeling.
+--
+-- Deze kolom houdt de tijd tot de eerste toetsaanslag bij: het herinneren zelf.
+-- Daarop rust vanaf nu de bijstelling van de beoordeling. `response_ms` blijft
+-- staan als maat voor het tempo van een sessie.
+--
+-- NULL voor bestaande rijen en voor beurten zonder invoer (meerkeuze, overslaan).
+ALTER TABLE review_logs ADD COLUMN IF NOT EXISTS think_ms INTEGER;

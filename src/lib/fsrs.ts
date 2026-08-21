@@ -60,24 +60,34 @@ export interface FsrsReviewLog {
   dBefore:      number | null;
   dAfter:       number;
   /**
-   * De werkelijk toegepaste beoordeling, die tussen goed en moeiteloos gebroken
-   * kan zijn. `grade` hierboven is de afgeronde bucket, want de databasekolom
-   * is een SMALLINT met een check op 1 t/m 4; zonder deze waarde is de historie
-   * niet te reproduceren.
+   * De werkelijk toegepaste beoordeling, die rond goed gebroken kan zijn — een
+   * tikje omhoog bij een vlot antwoord, een tikje omlaag bij een moeizaam.
+   * `grade` hierboven is de afgeronde bucket, want de databasekolom is een
+   * SMALLINT met een check op 1 t/m 4; zonder deze waarde is de historie niet
+   * te reproduceren.
    */
   effectiveGrade: number;
   /**
-   * Waarmee er getypt werd. Het tiktarief per medium is nu geschat; met dit
-   * veld erbij is het achteraf uit de eigen historie te toetsen.
+   * Waarmee er getypt werd. De beoordeling hangt hier niet meer aan — denktijd
+   * wordt gemeten, niet uit een tiktarief teruggerekend — maar het blijft staan
+   * omdat het bij het uitpluizen van de historie uitmaakt of een trage beurt op
+   * glas of op een fysiek toetsenbord plaatsvond.
    */
   inputMedium:  InputMedium | null;
   intervalDays: number;
   reviewedAt:   string;
   /**
    * Tijd van kaart tot bevestiging, in ms — inclusief de tijd die het typen
-   * kostte. Null voor modi zonder invoer en bij overslaan.
+   * kostte. Null voor modi zonder invoer en bij overslaan. Beschrijft het tempo
+   * van de sessie; de beoordeling hangt aan `thinkMs`.
    */
   responseMs:   number | null;
+  /**
+   * Tijd van kaart tot de eerste toetsaanslag, in ms — het herinneren zelf,
+   * zonder de tijd die het typen kostte. Dit is de maat waarop de snelheids-
+   * bijstelling rust. Null zolang er niets is ingetypt (overslaan, meerkeuze).
+   */
+  thinkMs:      number | null;
 }
 
 export interface QueueItem {
@@ -165,11 +175,16 @@ export function stabilityAfterSuccess(
   const tD = 11 - D;
   const tS = Math.pow(S, -W[9]);
   const tR = Math.exp(W[10] * (1 - R)) - 1;
-  const h  = grade === GRADE.HARD ? W[15] : 1.0;
-  // De enige harde vertakking in het model, nu geïnterpoleerd: tussen goed en
-  // moeiteloos loopt de bonus vloeiend van 1 naar W[16]. Bij een hele 3 of 4
-  // komt er exact uit wat er vóór deze wijziging uitkwam.
-  const b  = grade > GRADE.GOOD ? 1 + (grade - GRADE.GOOD) * (W[16] - 1) : 1.0;
+  // Beide vertakkingen in het model zijn geïnterpoleerd, zodat de schaal aan
+  // weerszijden van 'goed' vloeiend loopt: onder de 3 zakt de demping van 1
+  // naar W[15], erboven klimt de bonus van 1 naar W[16]. Bij een hele 2, 3 of
+  // 4 komt er exact uit wat FSRS-5 voorschrijft.
+  const h  = grade < GRADE.GOOD
+    ? 1 + (GRADE.GOOD - clamp(grade, GRADE.HARD, GRADE.GOOD)) * (W[15] - 1)
+    : 1.0;
+  const b  = grade > GRADE.GOOD
+    ? 1 + (clamp(grade, GRADE.GOOD, GRADE.EASY) - GRADE.GOOD) * (W[16] - 1)
+    : 1.0;
   const c  = Math.exp(W[8]);
   return S * (1 + tD * tS * tR * h * b * c);
 }
@@ -183,16 +198,67 @@ export function stabilityAfterFailure(D: number, S: number, R: number): number {
 
 // ─── REVIEW UITVOEREN ────────────────────────────────────────────────────────
 
+/**
+ * Het tijdstip van deze review, gestempeld op de dag waarmee gerekend wordt.
+ *
+ * `today` is de lokale dagsleutel van de aanroeper; `toISOString` geeft UTC. Wie
+ * na middernacht studeert in een zone vóór UTC kreeg zo een stempel van de dag
+ * ervóór: het model zag dan een tijdsverschil van een dag waar er geen was, en
+ * een tweede beurt in dezelfde sessie zag er niet meer als dezelfde dag uit.
+ * De datum komt daarom van de aanroeper, de kloktijd van de klok.
+ */
+function reviewTimestamp(today: string): string {
+  return `${today}T${new Date().toISOString().split('T')[1]}`;
+}
+
+/**
+ * Is dit een tweede beurt op dezelfde dag? Dan zegt hij niets over volgende week.
+ *
+ * Een herkansing na een fout is de normale aanleiding: je ziet het juiste
+ * antwoord staan en typt het even later in. Zou die beurt als volwaardige
+ * review tellen, dan zou het model met een tijdsverschil van nul rekenen —
+ * afgerond naar één dag — en de houdbaarheid meteen weer optrekken. Precies het
+ * woord dat je zojuist niet wist, zou dan verder weg komen te staan.
+ *
+ * FSRS is een model voor herhalingen over dágen. Wat binnen één dag gebeurt
+ * hoort in de leerstap, niet in het geheugenmodel; het wordt wel gelogd.
+ */
+function isSameDayRepeat(state: FsrsState, today: string): boolean {
+  if (state.stability === null || !state.lastReviewedAt) return false;
+  return state.lastReviewedAt.split('T')[0] === today;
+}
+
 export function reviewCard(
   state: FsrsState,
-  /** Mag gebroken zijn tussen goed en moeiteloos; zie `speedFactor`. */
+  /** Mag gebroken zijn tussen moeizaam en moeiteloos; zie `speedFactor`. */
   grade: number,
   today: string // YYYY-MM-DD
-): { newState: FsrsState; logPartial: Omit<FsrsReviewLog, 'cardId' | 'mode' | 'responseMs' | 'inputMedium'> } {
+): { newState: FsrsState; logPartial: Omit<FsrsReviewLog, 'cardId' | 'mode' | 'responseMs' | 'thinkMs' | 'inputMedium'> } {
   const isNew    = state.stability === null;
   const sBefore  = state.stability;
   const dBefore  = state.difficulty;
   let   rNow: number | null = null;
+
+  // Tweede beurt vandaag: alles blijft staan, alleen het tijdstip schuift op.
+  if (isSameDayRepeat(state, today)) {
+    const interval = state.dueDate
+      ? daysBetween(today, state.dueDate)
+      : nextInterval(state.stability!);
+    return {
+      newState: { ...state, lastReviewedAt: reviewTimestamp(today) },
+      logPartial: {
+        grade:          clamp(Math.round(grade), 1, 4) as FsrsGrade,
+        effectiveGrade: grade,
+        rAtReview:      null,
+        sBefore,
+        sAfter:         state.stability!,
+        dBefore,
+        dAfter:         state.difficulty!,
+        intervalDays:   interval,
+        reviewedAt:     reviewTimestamp(today),
+      },
+    };
+  }
 
   let newS: number;
   let newD: number;
@@ -218,7 +284,7 @@ export function reviewCard(
     stability:      newS,
     difficulty:     newD,
     dueDate:        addDays(today, interval),
-    lastReviewedAt: new Date().toISOString(),
+    lastReviewedAt: reviewTimestamp(today),
   };
 
   return {
@@ -232,7 +298,7 @@ export function reviewCard(
       dBefore,
       dAfter:       newD,
       intervalDays: interval,
-      reviewedAt:   new Date().toISOString(),
+      reviewedAt:   reviewTimestamp(today),
     },
   };
 }
@@ -257,52 +323,69 @@ export function determineGrade(
 }
 
 /**
- * Tiktarief per teken. Ruwweg 65 woorden per minuut op een fysiek toetsenbord
- * tegenover 34 op glas. Geschat, niet gemeten — daarom slaan we het medium bij
- * elke review op, zodat deze twee getallen later uit de historie te toetsen zijn.
+ * Denktijd: van het verschijnen van de kaart tot de eerste toetsaanslag.
+ *
+ * Dit is wat we willen weten — hoe lang duurde het voor het woord bovenkwam —
+ * en het wordt nu gemeten in plaats van geschat. Eerder werd het uit de totale
+ * reactietijd teruggerekend door er een geschat tiktarief per teken van af te
+ * trekken. Wie sneller typte dan die schatting kwam op een negatieve denktijd
+ * uit en kreeg dus altijd de volle bonus: je typsnelheid lekte zo in je
+ * geheugenbeoordeling. De eerste aanslag kent dat probleem niet, en scheelt
+ * bovendien twee aannames (het tarief zelf, en waarmee je typt).
+ *
+ * Binnen een seconde bedacht is moeiteloos; vanaf acht seconden is er geen
+ * bonus meer, en vanaf vijftien seconden was het met moeite.
  */
-const PER_CHAR_MS: Record<InputMedium, number> = { keyboard: 180, touch: 340 };
-
-/** Binnen een seconde bedacht is moeiteloos; acht seconden is met moeite. */
-const RECALL_FAST_MS = 1000;
-const RECALL_SLOW_MS = 8000;
+export const THINK_FAST_MS    =  1000;
+export const THINK_NEUTRAL_MS =  8000;
+export const THINK_SLOW_MS    = 15000;
 
 /**
- * Wat er van de reactietijd overblijft als de tiktijd eraf gaat: de tijd die
- * het herinneren zelf kostte.
+ * De grootste verschuiving die snelheid aan de beoordeling mag geven.
  *
- * Eerder lag er een budget *omheen* — herinnertijd plus tiktijd, met een band
- * eromheen. Dat schaalde de hele band mee met de woordlengte, waardoor een lang
- * woord ook een ruimere herinnermarge kreeg. Aftrekken is zuiverder: tikken is
- * overhead, herinneren is wat we meten.
+ * Klein met opzet. FSRS is leidend: de ankerwaarden voor 'goed' en 'moeiteloos'
+ * liggen ver uit elkaar (3,2 tegenover 15,7 dagen op een nieuw woord) en de
+ * groeibonus van een hele 4 verdrievoudigt de stap. Die hefboom hoort bij een
+ * oordeel dat je bewust geeft, niet bij een klok die meekijkt. Met een zwaai van
+ * 0,3 blijft snelheid een nuance binnen 'goed' in plaats van een overname.
  */
-export function recallMs(
-  responseMs: number, answerLength: number, medium: InputMedium,
-): number {
-  return responseMs - answerLength * PER_CHAR_MS[medium];
+export const SPEED_SWING = 0.3;
+
+/**
+ * Hoe vlot ging dit? Van +1 (moeiteloos) via 0 (gewoon) naar −1 (met moeite).
+ *
+ * De schaal loopt bewust twee kanten op. Alleen belonen zou een schatting zijn
+ * die maar één kant op kan afwijken, en dan stapelen de afwijkingen zich altijd
+ * dezelfde kant op: intervallen die stelselmatig te ver vooruit lopen.
+ */
+export function speedFactor(thinkMs: number | null): number {
+  if (thinkMs === null || !Number.isFinite(thinkMs)) return 0;
+  if (thinkMs <= THINK_FAST_MS) return 1;
+  if (thinkMs >= THINK_SLOW_MS) return -1;
+  if (thinkMs <= THINK_NEUTRAL_MS) {
+    return (THINK_NEUTRAL_MS - thinkMs) / (THINK_NEUTRAL_MS - THINK_FAST_MS);
+  }
+  return -(thinkMs - THINK_NEUTRAL_MS) / (THINK_SLOW_MS - THINK_NEUTRAL_MS);
 }
 
-/**
- * Hoe moeiteloos ging dit, van 0 (niet) tot 1 (volledig)?
- *
- * `repeat` is waar zodra dit woord eerder in dezelfde sessie is beantwoord —
- * na een kennismaking via meerkeuze of luisteren, of bij een herkansing. Dan
- * komt het antwoord uit het werkgeheugen en zegt de snelheid niets over wat er
- * over weken nog van over is. FSRS-5 kent daar aparte gewichten voor
- * (W[17]/W[18]); die zijn hier niet geïmplementeerd, dus vervalt de bonus.
- */
-export function speedFactor(
-  responseMs: number | null,
-  answerLength: number,
-  medium: InputMedium,
-  repeat = false,
-): number {
-  if (responseMs === null || !Number.isFinite(responseMs)) return 0;
-  if (repeat) return 0;
-  const r = recallMs(responseMs, answerLength, medium);
-  if (r <= RECALL_FAST_MS) return 1;
-  if (r >= RECALL_SLOW_MS) return 0;
-  return (RECALL_SLOW_MS - r) / (RECALL_SLOW_MS - RECALL_FAST_MS);
+/** Wanneer snelheid niets zegt over wat er over weken nog van het woord over is. */
+export interface SpeedContext {
+  /**
+   * Is dit woord eerder in dezelfde sessie al beantwoord? Na een kennismaking
+   * via meerkeuze of luisteren, of bij een herkansing, komt het antwoord uit het
+   * werkgeheugen. FSRS-5 kent daar aparte gewichten voor (W[17]/W[18]); die zijn
+   * hier niet geïmplementeerd, dus vervalt de bijstelling.
+   */
+  repeat?: boolean;
+  /**
+   * Is dit de allereerste review in deze modus? Dan bepaalt de beoordeling niet
+   * een stap maar het startpunt, en die ankers liggen vijf keer uit elkaar. Eén
+   * enkele blootstelling is het zwakste bewijs dat er is; daar hoort geen
+   * hefboom aan. Dit vangt ook het woord dat gisteren via meerkeuze langskwam en
+   * vandaag voor het eerst getypt wordt — binnen één sessie doet `repeat` dat,
+   * maar die kennis overleeft het einde van de sessie niet.
+   */
+  firstReview?: boolean;
 }
 
 /**
@@ -310,25 +393,22 @@ export function speedFactor(
  *
  * Eén ingang voor zowel het opslaan als het tonen van het interval. Werden die
  * los samengesteld, dan kon het getoonde `+N d` afwijken van wat er gepland werd:
- * de ene plek paste de snelheidsupgrade toe en de andere niet.
- *
- * Zonder invoertijd (`null`, bij overslaan en meerkeuze) is er geen upgrade.
+ * de ene plek paste de snelheidsbijstelling toe en de andere niet.
  */
 export function gradeForAnswer(
-  mode:         FsrsMode,
-  matchResult:  'correct' | 'almost' | 'wrong',
-  responseMs:   number | null,
-  answerLength: number,
-  medium:       InputMedium,
-  /** Is dit woord eerder in deze sessie al beantwoord? */
-  repeat = false,
+  mode:        FsrsMode,
+  matchResult: 'correct' | 'almost' | 'wrong',
+  /** Tijd tot de eerste toetsaanslag; null bij overslaan en meerkeuze. */
+  thinkMs:     number | null,
+  { repeat = false, firstReview = false }: SpeedContext = {},
 ): number {
   const base = determineGrade(mode, matchResult);
-  // Alleen een goed antwoord kan meeschalen; bijna en fout staan vast, en
+  // Alleen een goed antwoord schaalt mee; bijna en fout staan vast, en
   // meerkeuze meet geen tijd die iets zegt over herinneren.
   if (base !== GRADE.GOOD) return base;
   if (mode === 'mc' || mode === 'self_assess') return base;
-  return GRADE.GOOD + speedFactor(responseMs, answerLength, medium, repeat);
+  if (repeat || firstReview) return base;
+  return GRADE.GOOD + SPEED_SWING * speedFactor(thinkMs);
 }
 
 // ─── SESSIE OPBOUWEN ─────────────────────────────────────────────────────────

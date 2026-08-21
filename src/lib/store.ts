@@ -15,7 +15,7 @@ export type FsrsStatesMap = Record<string, Partial<Record<FsrsMode, FsrsState>>>
 export type ReviewLogRow = Pick<
   FsrsReviewLog,
   | 'cardId' | 'mode' | 'grade' | 'effectiveGrade' | 'inputMedium'
-  | 'sBefore' | 'sAfter' | 'reviewedAt' | 'responseMs'
+  | 'sBefore' | 'sAfter' | 'reviewedAt' | 'responseMs' | 'thinkMs'
 >;
 
 /** Zoveel recente reviews zijn genoeg voor de cijfers op het overzicht. */
@@ -175,6 +175,7 @@ function dbToReviewLog(row: any): ReviewLogRow {
     sAfter:     row.s_after,
     reviewedAt: row.reviewed_at,
     responseMs: row.response_ms ?? null,
+    thinkMs:    row.think_ms ?? null,
   };
 }
 
@@ -493,6 +494,7 @@ export function useWordStore() {
       sAfter:     log.sAfter,
       reviewedAt: log.reviewedAt,
       responseMs: log.responseMs,
+      thinkMs:    log.thinkMs,
     }, ...prev].slice(0, REVIEW_LOG_WINDOW));
 
     const row = {
@@ -510,11 +512,12 @@ export function useWordStore() {
       response_ms:   log.responseMs,
     };
 
-    // Kolommen die pas later zijn toegevoegd; de rij zonder deze twee is nog
+    // Kolommen die pas later zijn toegevoegd; de rij zonder deze drie is nog
     // steeds een bruikbare log.
     const extras = {
       effective_grade: log.effectiveGrade,
       input_medium:    log.inputMedium,
+      think_ms:        log.thinkMs,
     };
 
     const insert = (payload: typeof row & Partial<typeof extras>) =>
@@ -523,7 +526,8 @@ export function useWordStore() {
     let res = await insert({ ...row, ...extras });
 
     // Staan ze nog niet op de database, dan is een kalere log beter dan geen.
-    if (res.error && needsColumnFallback(res.error, 'effective_grade', 'input_medium')) {
+    if (res.error
+      && needsColumnFallback(res.error, 'effective_grade', 'input_medium', 'think_ms')) {
       res = await insert(row);
     }
     if (res.error) console.error('Review log opslaan mislukt:', res.error.message);
