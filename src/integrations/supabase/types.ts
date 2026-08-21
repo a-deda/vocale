@@ -14,6 +14,93 @@ export type Database = {
   }
   public: {
     Tables: {
+      card_fsrs_states: {
+        Row: {
+          card_id: string
+          difficulty: number | null
+          due_date: string | null
+          last_reviewed_at: string | null
+          mode: string
+          stability: number | null
+          user_id: string
+        }
+        Insert: {
+          card_id: string
+          difficulty?: number | null
+          due_date?: string | null
+          last_reviewed_at?: string | null
+          mode: string
+          stability?: number | null
+          user_id: string
+        }
+        Update: {
+          card_id?: string
+          difficulty?: number | null
+          due_date?: string | null
+          last_reviewed_at?: string | null
+          mode?: string
+          stability?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      review_logs: {
+        Row: {
+          card_id: string
+          d_after: number
+          d_before: number | null
+          effective_grade: number | null
+          grade: number
+          id: string
+          input_medium: string | null
+          interval_days: number
+          mode: string
+          r_at_review: number | null
+          response_ms: number | null
+          reviewed_at: string
+          s_after: number
+          s_before: number | null
+          think_ms: number | null
+          user_id: string
+        }
+        Insert: {
+          card_id: string
+          d_after: number
+          d_before?: number | null
+          effective_grade?: number | null
+          grade: number
+          id?: string
+          input_medium?: string | null
+          interval_days: number
+          mode: string
+          r_at_review?: number | null
+          response_ms?: number | null
+          reviewed_at?: string
+          s_after: number
+          s_before?: number | null
+          think_ms?: number | null
+          user_id: string
+        }
+        Update: {
+          card_id?: string
+          d_after?: number
+          d_before?: number | null
+          effective_grade?: number | null
+          grade?: number
+          id?: string
+          input_medium?: string | null
+          interval_days?: number
+          mode?: string
+          r_at_review?: number | null
+          response_ms?: number | null
+          reviewed_at?: string
+          s_after?: number
+          s_before?: number | null
+          think_ms?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null

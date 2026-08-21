@@ -27,7 +27,14 @@ vi.mock('@/components/StoreProvider', () => ({ useStore: () => H.store }));
 vi.mock('@/integrations/supabase/client', () => ({
   supabase: {
     auth: { getUser: () => Promise.resolve({ data: { user: { id: 'u1' } } }), signOut: () => Promise.resolve() },
-    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }) }) }),
+    from: () => ({
+      select: () => ({
+        eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }),
+        // Het diepere review-venster van de statistiekenpagina; null laat hem
+        // terugvallen op wat de store al heeft.
+        order: () => ({ limit: () => Promise.resolve({ data: null, error: null }) }),
+      }),
+    }),
   },
 }));
 vi.mock('@/lib/store', async (importOriginal) => ({
@@ -39,6 +46,7 @@ import Dashboard from '@/pages/Dashboard';
 import WordBank from '@/pages/WordBank';
 import Menu from '@/pages/Menu';
 import AddWords from '@/pages/AddWords';
+import Stats from '@/pages/Stats';
 
 /** Eén vervallen woord, één actief, één verankerd, één gloednieuw. */
 function seedStore() {
@@ -169,5 +177,59 @@ describe('woorden toevoegen', () => {
     expect(screen.getByText('Woorden toevoegen')).toBeInTheDocument();
     expect(screen.getByText(/Toevoegen — 0 woorden/)).toBeInTheDocument();
     expect(screen.getByText('automatisch vertalen')).toBeInTheDocument();
+  });
+});
+
+describe('statistieken', () => {
+  it('toont wat vast staat, de vorm van de woordenschat en het ritme', () => {
+    seedStore();
+    renderAt(<Stats />);
+
+    // w3 staat op 140 dagen en is als enige vast.
+    const vast = screen.getByText('woorden vast').previousElementSibling;
+    expect(vast).toHaveTextContent('1');
+
+    // De banden: w1 op 3 dagen, w2 op 12, w3 op 140. w4 heeft geen houdbaarheid.
+    expect(screen.getByText('1–7 d')).toBeInTheDocument();
+    expect(screen.getByText('90–365 d')).toBeInTheDocument();
+    expect(screen.getByText('365+ is het plafond · daar blijft alles staan')).toBeInTheDocument();
+
+    // Ritme over een kwartaal, niet over veertien dagen zoals het overzicht.
+    expect(screen.getByText('ritme over 90 dagen')).toBeInTheDocument();
+    expect(screen.getByText(/1 van 90 dagen/)).toBeInTheDocument();
+
+    // Voetregel: context, geen prestatie.
+    expect(screen.getByText(/4 woorden/)).toBeInTheDocument();
+  });
+
+  it('zwijgt over denktijd zolang er te weinig gemeten is', () => {
+    seedStore();
+    renderAt(<Stats />);
+    expect(screen.getByText(/De meting begint/)).toBeInTheDocument();
+    expect(screen.queryByText('tijd tot het eerste teken · mediaan')).not.toBeInTheDocument();
+  });
+
+  it('draagt geen streak, geen vlam en geen freezes', () => {
+    seedStore();
+    const { container } = renderAt(<Stats />);
+    expect(container.textContent).not.toMatch(/streak|freeze|🔥|🎉/i);
+    // Het oude scherm leidde met een voorspelde einddatum uit eigen wegingen.
+    expect(container.textContent).not.toMatch(/Mastery/i);
+  });
+
+  it('meldt een lege woordenbank in plaats van lege grafieken', () => {
+    seedStore();
+    H.store = { ...H.store, words: [], fsrsStates: {}, sessions: [], reviewLogs: [] };
+    renderAt(<Stats />);
+    expect(screen.getByText('Nog geen woorden.')).toBeInTheDocument();
+    expect(screen.queryByText('de vorm van je woordenschat')).not.toBeInTheDocument();
+  });
+
+  it('meldt woorden zonder houdbaarheid in plaats van vijf lege banden', () => {
+    seedStore();
+    H.store = { ...H.store, fsrsStates: {}, reviewLogs: [] };
+    renderAt(<Stats />);
+    expect(screen.getByText('4 woorden, geen houdbaarheid.')).toBeInTheDocument();
+    expect(screen.getByText('Nog niets gemeten.')).toBeInTheDocument();
   });
 });
