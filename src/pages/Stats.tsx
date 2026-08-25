@@ -30,10 +30,10 @@ export default function Stats() {
   const { words, sessions, fsrsStates, reviewLogs, loading } = useStore();
   const today = localDateKey();
 
-  const logs  = useReviewHistory(reviewLogs);
+  const { recent, crossings } = useReviewHistory(reviewLogs);
   const stats = useMemo(
-    () => buildStats(words, fsrsStates, sessions, logs, today),
-    [words, fsrsStates, sessions, logs, today],
+    () => buildStats(words, fsrsStates, sessions, recent, crossings, today),
+    [words, fsrsStates, sessions, recent, crossings, today],
   );
 
   if (loading) {
@@ -112,10 +112,10 @@ function Title() {
 function Anchored({ stats }: { stats: StatsData }) {
   const { points, horizon } = stats.anchored;
   const vast = points.find(p => !p.projected && p.label === 'nu')?.count ?? 0;
-  // Eén staaf zonder vooruitblik en niets vast: dan valt er niets te tekenen.
-  // Staat er wél iets vast, dan is dat gemeten en hoort de staaf er te staan,
-  // ook als de historie niet verder terugreikt dan deze maand.
-  const nothingYet = points.length <= 1 && points.every(p => !p.projected) && vast === 0;
+  // Niets vast én niets in het vooruitzicht: dan is een rij nulstaven geen
+  // grafiek maar ruis, en zegt één zin meer. Zodra er íets te tonen valt — een
+  // vast woord of een prognose — hoort de strook er te staan, hoe kort ook.
+  const nothingYet = vast === 0 && !points.some(p => p.projected);
 
   return (
     <StatBlock label="vast worden">

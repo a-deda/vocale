@@ -28,12 +28,18 @@ vi.mock('@/integrations/supabase/client', () => ({
   supabase: {
     auth: { getUser: () => Promise.resolve({ data: { user: { id: 'u1' } } }), signOut: () => Promise.resolve() },
     from: () => ({
-      select: () => ({
-        eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }),
-        // Het diepere review-venster van de statistiekenpagina; null laat hem
-        // terugvallen op wat de store al heeft.
-        order: () => ({ limit: () => Promise.resolve({ data: null, error: null }) }),
-      }),
+      select: () => {
+        // De statistiekenpagina doet twee queries: een venster op de recente
+        // reviews (`order().limit()`) en de overschrijdingen (`or().order()`).
+        // Allebei leeg; dan valt de pagina terug op wat de store al heeft.
+        const empty = Promise.resolve({ data: null, error: null });
+        const chain = {
+          eq:    () => ({ maybeSingle: () => Promise.resolve({ data: null }) }),
+          or:    () => chain,
+          order: () => Object.assign(empty, { limit: () => empty }),
+        };
+        return chain;
+      },
     }),
   },
 }));
