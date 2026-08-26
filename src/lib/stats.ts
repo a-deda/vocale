@@ -32,8 +32,12 @@ const MONTHS_FULL = ['januari', 'februari', 'maart', 'april', 'mei', 'juni',
 /** Het aandeel van de woordenschat waarop de horizon slaat. */
 const HORIZON_SHARE = 0.9;
 
-/** Zoveel maanden vooruit rekenen we hoogstens; daarna zegt de horizon het. */
-const MAX_PROJECTED_MONTHS = 12;
+/**
+ * Veiligheidsklep op de prognose, geen grens: de strook loopt door tot het
+ * laatste woord vast is. Woorden waarvoor `anchorDate` niets teruggeeft landen
+ * nooit, en zonder klep zou de strook dan eindeloos doorlopen.
+ */
+const MAX_PROJECTED_MONTHS = 36;
 
 /** Onder zoveel gemeten antwoorden zegt de denktijd nog niets. */
 export const THINK_TIME_MINIMUM = 50;
@@ -170,10 +174,13 @@ export function anchorTrend(
   words:      Word[],
   fsrsStates: FsrsStatesMap,
   logs:       StatsLog[],
+  /** Élke passage van de drempel, over de hele levensduur — zie `useReviewHistory`. */
+  crossings:  StatsLog[],
   rhythm:     Rhythm,
   today:      string,
 ): AnchorTrend {
   const nowMonth = monthOf(today);
+  if (words.length === 0) return { points: [], horizon: null };
 
   // Dezelfde telling als de toestandsbalk op het overzicht: `wordState` zet een
   // woord dat je maanden niet zag op wankel, hoe hoog de stabiliteit ook stond.
@@ -181,25 +188,31 @@ export function anchorTrend(
   const anchoredNow = words.filter(w => wordState(statesOf(w, fsrsStates), today) === 'anchored').length;
 
   // ── gemeten ──
+  // Netto per maand: erover is plus één, eronder is min één. Alleen de passages
+  // tellen, dus een gewone review verschuift niets.
   const net = new Map<string, number>();
-  let oldest: string | null = null;
-  for (const log of logs) {
-    const month = monthOf(log.reviewedAt.slice(0, 10));
-    if (oldest === null || month < oldest) oldest = month;
+  for (const log of crossings) {
     const before = log.sBefore ?? 0;
     const step = before < ANCHOR_DAYS && log.sAfter >= ANCHOR_DAYS ? 1
       : before >= ANCHOR_DAYS && log.sAfter < ANCHOR_DAYS ? -1
       : 0;
-    if (step !== 0) net.set(month, (net.get(month) ?? 0) + step);
+    if (step === 0) continue;
+    const month = monthOf(log.reviewedAt.slice(0, 10));
+    net.set(month, (net.get(month) ?? 0) + step);
   }
+
+  // De as begint waar de app in gebruik kwam: bij het vroegst toegevoegde woord.
+  const firstMonth = words
+    .map(w => monthOf(w.createdAt.slice(0, 10)))
+    .reduce((a, b) => (b < a ? b : a), nowMonth);
 
   const measured: AnchorPoint[] = [{
     month: nowMonth, label: 'nu', count: anchoredNow, projected: false,
   }];
   let running = anchoredNow;
   let cursor  = nowMonth;
-  // Loop terug zolang de logs die maand nog dekken.
-  while (oldest !== null && cursor > oldest && measured.length < MAX_PROJECTED_MONTHS) {
+  // Terug door de maanden: haal er telkens af wat er in die maand bij kwam.
+  while (cursor > firstMonth) {
     running -= net.get(cursor) ?? 0;
     cursor   = addMonths(cursor, -1);
     measured.unshift({
@@ -244,8 +257,10 @@ export function anchorTrend(
     : null;
 
   const points = [...measured];
-  if (rate !== null && known.length > anchoredNow) {
-    const last = horizon !== null ? monthOf(known[target - 1]) : addMonths(nowMonth, MAX_PROJECTED_MONTHS);
+  if (known.length > anchoredNow) {
+    // Door tot het láátste woord vast is, niet tot de horizon: die noemt het
+    // moment waarop negen van de tien er zijn, de strook toont de hele staart.
+    const last = known[known.length - 1].slice(0, 7);
     for (let i = 1; i <= MAX_PROJECTED_MONTHS; i++) {
       const month = addMonths(nowMonth, i);
       const end   = addMonths(month, 1); // alles vóór de eerste van de maand erna
@@ -448,7 +463,10 @@ export function buildStats(
   words:      Word[],
   fsrsStates: FsrsStatesMap,
   sessions:   StudySession[],
+  /** Een venster op de recente reviews; draagt denktijd, terugval en tempo. */
   logs:       StatsLog[],
+  /** Élke passage van de drempel, ongelimiteerd; draagt de maandstrook. */
+  crossings:  StatsLog[],
   today:      string,
 ): Stats {
   const rhythm    = rhythmOf(sessions, today, RHYTHM_DAYS);
@@ -464,7 +482,7 @@ export function buildStats(
     totalWords:     words.length,
     untouched:      shape.untouched,
     addedThisMonth: words.filter(w => monthOf(w.createdAt.slice(0, 10)) === nowMonth).length,
-    anchored:       anchorTrend(words, fsrsStates, logs, rhythm, today),
+    anchored:       anchorTrend(words, fsrsStates, logs, crossings, rhythm, today),
     shape,
     think:          thinkTimes(words, fsrsStates, logs, today),
     lagging:        laggingWords(words, logs),

@@ -133,82 +133,140 @@ describe('anchorTrend', () => {
     TODAY, 90,
   );
 
+  /** Woorden die in juni zijn toegevoegd; de as begint dan in juni. */
+  const since = (id: string, month = '2026-06') => word(id, { createdAt: `${month}-01T10:00:00.000Z` });
+
   it('de laatste gemeten staaf heet "nu" en draagt het huidige aantal vast', () => {
-    const words = [word('a'), word('b')];
+    const words = [since('a'), since('b')];
     const states: FsrsStatesMap = {
       a: { typed_nl_it: state(ANCHOR_DAYS + 10) },
       b: { typed_nl_it: state(5) },
     };
-    const { points } = anchorTrend(words, states, [], rhythm, TODAY);
+    const { points } = anchorTrend(words, states, [], [], rhythm, TODAY);
     const nu = points.find(p => p.label === 'nu')!;
     expect(nu.count).toBe(1);
     expect(nu.projected).toBe(false);
   });
 
-  it('loopt terug door de maanden met de overschrijdingen uit de logs', () => {
-    const words = [word('a'), word('b'), word('c')];
+  it('de as begint in de maand van het vroegst toegevoegde woord', () => {
+    const words = [since('a', '2025-11'), since('b', '2026-03'), since('c', '2026-07')];
+    const { points } = anchorTrend(words, {}, [], [], rhythm, TODAY);
+    expect(points[0].month).toBe('2025-11');
+    // november 2025 t/m augustus 2026 is tien maanden.
+    expect(points.filter(p => !p.projected)).toHaveLength(10);
+  });
+
+  it('loopt terug door de maanden met de overschrijdingen', () => {
+    const words = [since('a'), since('b'), since('c')];
     const states: FsrsStatesMap = {
       a: { typed_nl_it: state(ANCHOR_DAYS + 10) },
       b: { typed_nl_it: state(ANCHOR_DAYS + 10) },
       c: { typed_nl_it: state(ANCHOR_DAYS + 10) },
     };
-    const logs = [
+    const crossings = [
       // twee woorden gingen deze maand over de drempel
       log({ sBefore: 80, sAfter: 95, reviewedAt: '2026-08-04T10:00:00.000Z' }),
       log({ sBefore: 85, sAfter: 99, reviewedAt: '2026-08-06T10:00:00.000Z' }),
       // en één in juli
       log({ sBefore: 70, sAfter: 92, reviewedAt: '2026-07-09T10:00:00.000Z' }),
-      log({ sBefore: 20, sAfter: 30, reviewedAt: '2026-06-09T10:00:00.000Z' }),
     ];
-    const { points } = anchorTrend(words, states, logs, rhythm, TODAY);
+    const { points } = anchorTrend(words, states, [], crossings, rhythm, TODAY);
     const measured = points.filter(p => !p.projected);
-    expect(measured.map(p => p.count)).toEqual([0, 1, 3]); // jun, jul, nu
+    // Eind juni stond er niets vast, eind juli één, en nu drie. Augustus is
+    // `nu` — die staat niet nog een keer onder zijn eigen naam.
+    expect(measured.map(p => p.count)).toEqual([0, 1, 3]);
     expect(measured.map(p => p.label)).toEqual(['jun', 'jul', 'nu']);
   });
 
-  it('telt een terugval mee als een min', () => {
-    const words = [word('a')];
+  it('leest de historie uit de overschrijdingen, niet uit het recente venster', () => {
+    // Dit was het lek: reikte het venster niet tot juni, dan trok de terugloop
+    // daar nul af en liep de lijn vlak door op de huidige waarde.
+    const words = [since('a', '2026-05')];
     const states: FsrsStatesMap = { a: { typed_nl_it: state(ANCHOR_DAYS + 10) } };
-    const logs = [
-      log({ sBefore: 95, sAfter: 40, reviewedAt: '2026-08-04T10:00:00.000Z' }),
-      log({ sBefore: 10, sAfter: 20, reviewedAt: '2026-07-04T10:00:00.000Z' }),
-    ];
-    const { points } = anchorTrend(words, states, logs, rhythm, TODAY);
+    const crossings = [log({ sBefore: 80, sAfter: 95, reviewedAt: '2026-06-10T10:00:00.000Z' })];
+    const recentOnly = [log({ sBefore: 95, sAfter: 99, reviewedAt: '2026-08-18T10:00:00.000Z' })];
+
+    const { points } = anchorTrend(words, states, recentOnly, crossings, rhythm, TODAY);
+    const byLabel = Object.fromEntries(points.map(p => [p.label, p.count]));
+    expect(byLabel['mei']).toBe(0); // vóór de overschrijding stond er niets vast
+    expect(byLabel['jun']).toBe(1);
+    expect(byLabel['nu']).toBe(1);
+  });
+
+  it('telt een terugval mee als een min', () => {
+    const words = [since('a')];
+    const states: FsrsStatesMap = { a: { typed_nl_it: state(ANCHOR_DAYS + 10) } };
+    const crossings = [log({ sBefore: 95, sAfter: 40, reviewedAt: '2026-08-04T10:00:00.000Z' })];
+    const { points } = anchorTrend(words, states, [], crossings, rhythm, TODAY);
     // Nu 1 vast, deze maand netto −1 → vorige maand stonden er 2.
     expect(points.find(p => p.label === 'jul')!.count).toBe(2);
   });
 
   it('projecteert vooruit met open staven en noemt een horizon', () => {
-    const words = [word('a'), word('b')];
+    const words = [since('a'), since('b')];
     const states: FsrsStatesMap = {
       a: { typed_nl_it: state(ANCHOR_DAYS + 10) },
       b: { typed_nl_it: state(40) },
     };
     const logs = [log({ sBefore: null, sAfter: 3, reviewedAt: '2026-08-18T10:00:00.000Z' })];
-    const { points, horizon } = anchorTrend(words, states, logs, rhythm, TODAY);
-    const projected = points.filter(p => p.projected);
-    expect(projected.length).toBeGreaterThan(0);
+    const { points, horizon } = anchorTrend(words, states, logs, [], rhythm, TODAY);
+    expect(points.filter(p => p.projected).length).toBeGreaterThan(0);
     expect(horizon).not.toBeNull();
   });
 
-  it('projecteert niets zonder gemeten introductietempo', () => {
-    const words = [word('a'), word('b')];
-    const states: FsrsStatesMap = { a: {}, b: {} };
-    const { points, horizon } = anchorTrend(words, states, [], rhythm, TODAY);
+  it('loopt door tot het laatste woord vast is, niet tot de horizon', () => {
+    // Negen woorden die snel vast zijn en één dat er lang over doet: de horizon
+    // ligt op negen van de tien, maar de strook hoort tot de tiende te lopen.
+    const words = Array.from({ length: 10 }, (_, i) => since('w' + i));
+    const states: FsrsStatesMap = Object.fromEntries(
+      words.map((w, i) => [w.id, { typed_nl_it: state(i < 9 ? 80 : 2) }]),
+    );
+    const { points, horizon } = anchorTrend(words, states, [], [], rhythm, TODAY);
+    const projected = points.filter(p => p.projected);
+    const laatste = projected[projected.length - 1];
+    expect(laatste.count).toBe(10);           // iedereen vast op de laatste staaf
+    expect(laatste.month > monthOf(TODAY)).toBe(true);
+    // De horizon noemt negen van de tien en ligt dus eerder dan het einde.
+    expect(horizon).not.toBeNull();
+  });
+
+  it('houdt een woordenschat die niet convergeert binnen de klep', () => {
+    const words = Array.from({ length: 40 }, (_, i) => since('w' + i));
+    const logs = [log({ sBefore: null, sAfter: 3, reviewedAt: '2026-08-18T10:00:00.000Z' })];
+    const { points } = anchorTrend(words, {}, logs, [], rhythm, TODAY);
+    expect(points.filter(p => p.projected).length).toBeLessThanOrEqual(36);
+  });
+
+  it('projecteert niets als er niets te projecteren valt', () => {
+    const words = [since('a'), since('b')];
+    const { points, horizon } = anchorTrend(words, { a: {}, b: {} }, [], [], rhythm, TODAY);
     expect(points.every(p => !p.projected)).toBe(true);
     expect(horizon).toBeNull();
   });
 
+  it('geeft niets terug voor een lege woordenbank', () => {
+    expect(anchorTrend([], {}, [], [], rhythm, TODAY)).toEqual({ points: [], horizon: null });
+  });
+
   it('de geprojecteerde reeks daalt nooit', () => {
-    const words = Array.from({ length: 12 }, (_, i) => word('w' + i));
+    const words = Array.from({ length: 12 }, (_, i) => since('w' + i));
     const states: FsrsStatesMap = Object.fromEntries(
       words.map((w, i) => [w.id, { typed_nl_it: state(3 + i * 6) }]),
     );
     const logs = [log({ sBefore: null, sAfter: 3, reviewedAt: '2026-08-18T10:00:00.000Z' })];
-    const { points } = anchorTrend(words, states, logs, rhythm, TODAY);
+    const { points } = anchorTrend(words, states, logs, [], rhythm, TODAY);
     const projected = points.filter(p => p.projected).map(p => p.count);
     for (let i = 1; i < projected.length; i++) {
       expect(projected[i]).toBeGreaterThanOrEqual(projected[i - 1]);
+    }
+  });
+
+  it('de maanden lopen zonder gaten van begin tot eind', () => {
+    const words = [since('a', '2026-02'), since('b', '2026-04')];
+    const states: FsrsStatesMap = { a: { typed_nl_it: state(60) }, b: { typed_nl_it: state(70) } };
+    const { points } = anchorTrend(words, states, [], [], rhythm, TODAY);
+    for (let i = 1; i < points.length; i++) {
+      expect(points[i].month).toBe(addMonths(points[i - 1].month, 1));
     }
   });
 });
@@ -332,7 +390,7 @@ describe('buildStats — het hele scherm', () => {
   ];
 
   it('klapt niet om op een lege woordenbank', () => {
-    const stats = buildStats([], {}, [], [], TODAY);
+    const stats = buildStats([], {}, [], [], [], TODAY);
     expect(stats.totalWords).toBe(0);
     expect(stats.shape.untouched).toBe(0);
     expect(stats.think).toEqual([]);
@@ -341,7 +399,7 @@ describe('buildStats — het hele scherm', () => {
 
   it('klapt niet om op woorden zonder enige review', () => {
     const words = [word('a'), word('b')];
-    const stats = buildStats(words, {}, [], [], TODAY);
+    const stats = buildStats(words, {}, [], [], [], TODAY);
     expect(stats.untouched).toBe(2);
     expect(stats.lagging).toEqual([]);
     expect(stats.anchored.points.every(p => !p.projected)).toBe(true);
@@ -352,11 +410,11 @@ describe('buildStats — het hele scherm', () => {
       word('a', { createdAt: `${TODAY}T09:00:00.000Z` }),
       word('b', { createdAt: '2026-05-01T09:00:00.000Z' }),
     ];
-    expect(buildStats(words, {}, [], [], TODAY).addedThisMonth).toBe(1);
+    expect(buildStats(words, {}, [], [], [], TODAY).addedThisMonth).toBe(1);
   });
 
   it('neemt de mediane sessiegrootte over het ritmevenster', () => {
-    const stats = buildStats([word('a')], {}, sessions, [], TODAY);
+    const stats = buildStats([word('a')], {}, sessions, [], [], TODAY);
     expect(stats.medianSessionWords).toBe(18);
     expect(stats.rhythm.days).toHaveLength(90);
     expect(stats.rhythm.studied).toBe(2);
