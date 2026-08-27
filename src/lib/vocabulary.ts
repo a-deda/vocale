@@ -1,5 +1,5 @@
 import { Word, StudySession } from '@/types/word';
-import { ANCHOR_DAYS, addDays, daysBetween, strongestState, wordState } from '@/lib/fsrs';
+import { ANCHOR_DAYS, FSRS_MODES, addDays, daysBetween, strongestState, wordState } from '@/lib/fsrs';
 import type { FsrsMode, FsrsState, WordState } from '@/lib/fsrs';
 import type { FsrsStatesMap, ReviewLogRow } from '@/lib/store';
 
@@ -73,9 +73,23 @@ function statesOf(word: Word, fsrsStates: FsrsStatesMap): Partial<Record<FsrsMod
   return fsrsStates[word.id] ?? {};
 }
 
-/** Vervaldatum van het woord: die van de modus waarin herhalingen gepland worden. */
+/**
+ * Vervaldatum van het woord: die van de modus waarin herhalingen gepland worden.
+ *
+ * Zolang een woord alleen is kennisgemaakt en nog niet getypt, draagt de
+ * kennismaking de planning. Zonder die terugval verdween zo'n woord volledig uit
+ * het overzicht — niet vervallen, niet gepland, nergens te zien — terwijl het in
+ * de sessie wél langskwam.
+ */
 function dueDateOf(states: Partial<Record<FsrsMode, FsrsState>>): string | null {
-  return states[SCHEDULING_MODE]?.dueDate ?? null;
+  const scheduled = states[SCHEDULING_MODE]?.dueDate;
+  if (scheduled != null) return scheduled;
+  const intro = FSRS_MODES
+    .filter(m => m !== SCHEDULING_MODE)
+    .map(m => states[m]?.dueDate)
+    .filter((d): d is string => d != null)
+    .sort();
+  return intro[0] ?? null;
 }
 
 export function countStates(words: Word[], fsrsStates: FsrsStatesMap, today: string): StateCounts {

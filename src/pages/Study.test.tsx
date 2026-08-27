@@ -31,7 +31,7 @@ const H = vi.hoisted(() => {
     queue: [{ cardId: 'w1', mode: 'typed_nl_it', dueDate: null }] as
       { cardId: string; mode: string; dueDate: string | null }[],
     updateWord: vi.fn(() => Promise.resolve()),
-    upsertFsrsState: vi.fn(() => Promise.resolve()),
+    upsertFsrsState: vi.fn((_id: string, _mode: string, _state: unknown) => Promise.resolve()),
     addReviewLog: vi.fn((_log: Record<string, unknown>) => Promise.resolve()),
     updateStreak: vi.fn(() => Promise.resolve()),
     addSession: vi.fn((_session: {
@@ -379,6 +379,28 @@ describe('Study – foute antwoorden worden niet overgeslagen', () => {
         fireEvent.click(screen.getByText('praten'));
         act(() => { vi.advanceTimersByTime(400); });
         expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('schrijft weg bij het antwoord, niet pas na de vertraging', () => {
+      // Het briefje "+3 d" verschijnt meteen; hing het wegschrijven aan dezelfde
+      // seconde vertraging, dan beloofde het scherm iets terwijl er nog niets
+      // onderweg was — en verdween de beurt als je de app dichtdeed.
+      vi.useFakeTimers();
+      try {
+        H.state.fsrsStates = running();
+        cleanup();
+        renderStudy();
+        act(() => { vi.advanceTimersByTime(2000); });
+
+        fireEvent.change(screen.getByPlaceholderText(IT_INPUT), { target: { value: 'parlare' } });
+        fireEvent.click(screen.getByText('Controleer'));
+
+        // Nog geen enkele timer vooruit: de write hoort al gedaan te zijn.
+        expect(H.state.upsertFsrsState).toHaveBeenCalled();
+        expect(H.state.upsertFsrsState.mock.calls[0][1]).toBe('typed_nl_it');
       } finally {
         vi.useRealTimers();
       }

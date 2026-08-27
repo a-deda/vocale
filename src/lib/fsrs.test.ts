@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildSession, cappedDueDate, emptyFsrsState, FSRS_MODES, GRADE, gradeForAnswer, initialStability,
   intervalShort, intervalTone, MAX_INTERVAL_DAYS, nextInterval, previewInterval,
-  reviewCard, speedFactor, SPEED_SWING, updateDifficulty, W,
+  reviewCard, speedFactor, SPEED_SWING, startingState, updateDifficulty, W,
 } from '@/lib/fsrs';
 import type { FsrsMode, FsrsState } from '@/lib/fsrs';
 
@@ -40,8 +40,14 @@ describe('buildSession — kernregel: luisteren/meerkeuze alleen voor nieuwe woo
     expect(items[0].mode).toBe('typed_nl_it');
   });
 
-  it('geïntroduceerd-maar-niet-getypt komt terug als typen, ook als herkennings-state in de toekomst staat', () => {
-    const items = buildSession({ a: { listen_type: state(FUTURE) } }, TODAY, 20);
+  it('geïntroduceerd-maar-niet-getypt wacht op de vervaldatum van de kennismaking', () => {
+    // Deze test legde eerst het omgekeerde vast: terugkomen ongeacht de datum.
+    // Dat bleek de klacht — zo'n woord verscheen elke dag opnieuw en begon
+    // telkens bij nul. De regel die telt is dat het nóóit meer als herkenning
+    // terugkomt; wannéér er getypt wordt, bepaalt de kennismaking.
+    expect(buildSession({ a: { listen_type: state(FUTURE) } }, TODAY, 20)).toHaveLength(0);
+
+    const items = buildSession({ a: { listen_type: state(TODAY) } }, TODAY, 20);
     expect(items).toHaveLength(1);
     expect(items[0].mode).toBe('typed_nl_it');
   });
@@ -495,5 +501,80 @@ describe('woorden schuiven niet meer in drie beurten een jaar weg', () => {
   it('de eerste beurt van een nieuw woord staat vast op de goed-ankerwaarde', () => {
     expect(trajectory(200, 1)[0]).toBe(trajectory(30000, 1)[0]);
     expect(trajectory(200, 1)[0]).toBe(nextInterval(W[2]));
+  });
+});
+
+
+describe('startingState — de kennismaking telt mee bij de eerste typebeurt', () => {
+  const intro = (stability: number, due = FUTURE): FsrsState => ({
+    stability, difficulty: 5, dueDate: due, lastReviewedAt: '2026-06-10T10:00:00.000Z',
+  });
+
+  it('neemt de kennismaking als vertrekpunt zolang er nog niet getypt is', () => {
+    expect(startingState({ mc: intro(9) }, 'typed_nl_it').stability).toBe(9);
+    expect(startingState({ listen_type: intro(7) }, 'typed_nl_it').stability).toBe(7);
+  });
+
+  it('kiest de sterkste als er zowel geluisterd als gekozen is', () => {
+    expect(startingState({ mc: intro(4), listen_type: intro(11) }, 'typed_nl_it').stability).toBe(11);
+  });
+
+  it('laat een bestaande getypte state met rust', () => {
+    const states = { mc: intro(50), typed_nl_it: intro(3) };
+    expect(startingState(states, 'typed_nl_it').stability).toBe(3);
+  });
+
+  it('geeft leeg terug voor een woord dat nog nergens is geweest', () => {
+    expect(startingState({}, 'typed_nl_it').stability).toBeNull();
+  });
+
+  it('leent niets voor de kennismakingsvormen zelf', () => {
+    expect(startingState({ typed_nl_it: intro(40) }, 'mc').stability).toBeNull();
+  });
+
+  it('de eerste typebeurt komt verder dan drie dagen — dat was de klacht', () => {
+    // Kennismaking van een paar dagen geleden, nog niet getypt.
+    const states = {
+      mc: { stability: 3.17, difficulty: 5, dueDate: '2026-06-15',
+            lastReviewedAt: '2026-06-12T19:00:00.000Z' },
+    };
+    const begin = startingState(states, 'typed_nl_it');
+    const vlot  = gradeForAnswer('typed_nl_it', 'correct', 800,
+      { firstReview: begin.stability === null });
+    const traag = gradeForAnswer('typed_nl_it', 'correct', 20000,
+      { firstReview: begin.stability === null });
+
+    expect(previewInterval(begin, vlot, TODAY)).toBeGreaterThan(3);
+    // En de denktijd telt weer mee, want het is geen eerste beurt meer.
+    expect(previewInterval(begin, vlot, TODAY))
+      .toBeGreaterThan(previewInterval(begin, traag, TODAY));
+  });
+});
+
+describe('buildSession — een kennismaking bepaalt wanneer er getypt wordt', () => {
+  const intro = (due: string): FsrsState => ({
+    stability: 3.17, difficulty: 5, dueDate: due, lastReviewedAt: '2026-06-14T19:00:00.000Z',
+  });
+
+  it('wacht op de vervaldatum van de kennismaking', () => {
+    // Dit was het lek: zo'n woord kwam elke sessie terug, ongeacht de datum.
+    expect(buildSession({ a: { mc: intro(FUTURE) } }, TODAY, 20)).toHaveLength(0);
+  });
+
+  it('biedt het als typoefening aan zodra de kennismaking vervalt', () => {
+    const items = buildSession({ a: { mc: intro(TODAY) } }, TODAY, 20);
+    expect(items).toHaveLength(1);
+    expect(items[0].mode).toBe('typed_nl_it');
+  });
+
+  it('een misgelopen kennismaking staat op morgen en komt dan terug', () => {
+    expect(buildSession({ a: { mc: intro(PAST) } }, TODAY, 20)).toHaveLength(1);
+  });
+
+  it('zonder vervaldatum op de kennismaking mag het meteen', () => {
+    const zonderDatum: FsrsState = {
+      stability: 3, difficulty: 5, dueDate: null, lastReviewedAt: '2026-06-14T19:00:00.000Z',
+    };
+    expect(buildSession({ a: { mc: zonderDatum } }, TODAY, 20)).toHaveLength(1);
   });
 });

@@ -416,6 +416,56 @@ export function gradeForAnswer(
 // Mode waarin geïntroduceerde woorden geproduceerd worden (typen, NL → IT).
 const TYPED_MODE: FsrsMode = 'typed_nl_it';
 
+/** De vormen waarmee een woord kennismaakt, vóórdat het getypt wordt. */
+const INTRO_MODES: FsrsMode[] = ['listen_type', 'mc'];
+
+/**
+ * De state waarmee een beurt begint — en het startpunt van de eerste typebeurt.
+ *
+ * Voor typen zonder eigen state: de sterkste kennismaking telt mee in plaats van
+ * dat het woord bij nul begint. De kennismaking gebeurt per ontwerp precies één
+ * keer, dus die state ís wat er van het woord bekend is. Zonder dit levert elke
+ * eerste typebeurt exact `initialStability(3)` = 3,17 op — drie dagen, hoe goed
+ * je het woord ook kent — en vervalt bovendien de snelheidsbijstelling, omdat
+ * het dan als eerste beurt telt.
+ */
+export function startingState(
+  states: Partial<Record<FsrsMode, FsrsState>>,
+  mode:   FsrsMode,
+): FsrsState {
+  const own = states[mode];
+  if (own?.stability != null) return own;
+  if (mode !== TYPED_MODE) return emptyFsrsState();
+
+  let best: FsrsState | null = null;
+  for (const intro of INTRO_MODES) {
+    const s = states[intro];
+    if (s?.stability == null) continue;
+    if (!best || s.stability > best.stability!) best = s;
+  }
+  return best ?? emptyFsrsState();
+}
+
+/**
+ * Wanneer komt een geïntroduceerd-maar-nog-niet-getypt woord aan de beurt?
+ *
+ * Op de vervaldatum die de kennismaking zelf opleverde. Zonder datum is dat nu.
+ * Eerder stond hier `null` en kwam zo'n woord elke sessie terug tot het een keer
+ * getypt was — ook als de kennismaking van gisteren pas over drie dagen vervalt.
+ */
+function introDue(states: Partial<Record<FsrsMode, FsrsState>>, today: string): string {
+  let earliest: string | null = null;
+  for (const intro of INTRO_MODES) {
+    const state = states[intro];
+    if (!state) continue;                          // die vorm is er niet geweest
+    if (state.dueDate == null) return today;       // gezien, maar zonder planning
+    if (earliest === null || state.dueDate < earliest) earliest = state.dueDate;
+  }
+  // Geen kennismaking om op te wachten — bijvoorbeeld een losse state uit een
+  // andere modus. Dan is typen de enige volgende stap, en die mag nu.
+  return earliest ?? today;
+}
+
 // Van de gloednieuwe woorden in één sessie krijgen er hooguit zoveel een
 // luister-intro; de rest wordt via meerkeuze geïntroduceerd. Zo blijft het
 // aandeel audio-oefeningen behapbaar.
@@ -460,7 +510,10 @@ export function buildSession(
     if (hasAnyState) {
       // Situatie 2: ooit gezien (luisteren/meerkeuze), maar nog niet via typen
       // geproduceerd → de enige volgende stap is typen, nooit opnieuw herkennen.
-      toType.push({ cardId, mode: TYPED_MODE, dueDate: null });
+      // Wél op het ritme van de kennismaking: anders komt zo'n woord elke dag
+      // terug tot het een keer getypt is.
+      const due = introDue(states, today);
+      if (due <= today) toType.push({ cardId, mode: TYPED_MODE, dueDate: due });
       continue;
     }
 

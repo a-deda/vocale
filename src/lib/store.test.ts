@@ -65,14 +65,16 @@ const H = vi.hoisted(() => {
   return {
     calls,
     supabase,
+    toast: vi.fn(),
     setHandler: (h: Handler) => { handler = h; },
   };
 });
 
 vi.mock('@/integrations/supabase/client', () => ({ supabase: H.supabase }));
-vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: H.toast }) }));
 
 import { useWordStore, localDateKey } from '@/lib/store';
+import { queuePendingFsrsState, readPendingFsrsStates } from '@/lib/session-outbox';
 
 /** Standaardantwoorden; per test aan te passen via `rows`/`fail`. */
 const rows: { userStats: Row | null } = { userStats: null };
@@ -107,6 +109,7 @@ beforeEach(() => {
   rows.userStats = null;
   fail.studySessions = false;
   H.setHandler(defaultHandler);
+  H.toast.mockClear();
   localStorage.clear();
 });
 
@@ -255,5 +258,79 @@ describe('sessies opslaan', () => {
     expect(sessionWrites[1].payload).not.toHaveProperty('client_id');
     expect(localStorage.getItem('vocale.pendingSessions.user-1')).toBeNull();
     expect(result.current.sessions).toHaveLength(1);
+  });
+});
+
+
+describe('FSRS-state opslaan — een write die niets doet is geen succes', () => {
+  /**
+   * De melding die dit bewaakt: een woord stond na de sessie in het overzicht,
+   * en was de volgende dag weer weg. De upsert kwam terug zonder fout, maar had
+   * nul rijen geraakt — een rij die je door RLS niet mag zien bezet nog wel de
+   * primaire sleutel. Dat was niet te onderscheiden van opgeslagen.
+   */
+  const geenRijen = (call: Call): Result => {
+    if (call.table === 'card_fsrs_states') return { data: [], error: null };
+    return defaultHandler(call);
+  };
+  const welEenRij = (call: Call): Result => {
+    if (call.table === 'card_fsrs_states') return { data: [{ ...call.payload }], error: null };
+    return defaultHandler(call);
+  };
+
+  const state = {
+    stability: 12, difficulty: 5,
+    dueDate: '2026-09-01', lastReviewedAt: '2026-08-20T10:00:00.000Z',
+  };
+
+  it('meldt het en houdt de beoordeling vast als er geen rij terugkomt', async () => {
+    const { result } = await renderStore();
+    H.setHandler(geenRijen);
+
+    await act(async () => {
+      await result.current.upsertFsrsState('w1', 'typed_nl_it', state);
+    });
+
+    expect(H.toast).toHaveBeenCalled();
+    // In de outbox, zodat hij bij de volgende start alsnog meegaat.
+    expect(readPendingFsrsStates('user-1')).toHaveLength(1);
+  });
+
+  it('vraagt de rij ook echt op, anders valt nul rijen niet op', async () => {
+    const { result } = await renderStore();
+    H.calls.length = 0;
+    H.setHandler(welEenRij);
+
+    await act(async () => {
+      await result.current.upsertFsrsState('w1', 'typed_nl_it', state);
+    });
+
+    const write = H.calls.find(c => c.table === 'card_fsrs_states' && c.op === 'upsert');
+    expect(write).toBeDefined();
+    expect(write!.payload.card_id).toBe('w1');
+    expect(write!.payload.user_id).toBe('user-1');
+  });
+
+  it('ruimt de outbox op zodra de rij wél is aangekomen', async () => {
+    const { result } = await renderStore();
+    H.setHandler(welEenRij);
+
+    await act(async () => {
+      await result.current.upsertFsrsState('w1', 'typed_nl_it', state);
+    });
+
+    expect(readPendingFsrsStates('user-1')).toHaveLength(0);
+    expect(result.current.fsrsStates.w1?.typed_nl_it?.stability).toBe(12);
+  });
+
+  it('stuurt bij de volgende start alsnog wat er is blijven staan', async () => {
+    queuePendingFsrsState('user-1', { cardId: 'w9', mode: 'typed_nl_it', state });
+    H.setHandler(welEenRij);
+
+    await renderStore();
+    await waitFor(() => expect(readPendingFsrsStates('user-1')).toHaveLength(0));
+
+    const write = H.calls.find(c => c.table === 'card_fsrs_states' && c.op === 'upsert');
+    expect(write!.payload.card_id).toBe('w9');
   });
 });
