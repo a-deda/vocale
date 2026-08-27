@@ -7,6 +7,9 @@ import { FSRS_MODES, cappedDueDate, emptyFsrsState } from '@/lib/fsrs';
 import {
   PendingSession, makeClientId, readPendingSessions,
   queuePendingSession, unqueuePendingSession,
+  queuePendingFsrsState,
+  readPendingFsrsStates,
+  unqueuePendingFsrsState,
 } from '@/lib/session-outbox';
 
 export type FsrsStatesMap = Record<string, Partial<Record<FsrsMode, FsrsState>>>;
@@ -204,6 +207,13 @@ export function useWordStore() {
   const [userId, setUserId]     = useState<string | null>(null);
   const [loading, setLoading]   = useState(true);
   const { toast } = useToast();
+  /**
+   * `loadAll` hangt in een effect-afhankelijkheid, dus moet stabiel zijn. Een
+   * `toast` die per render van identiteit wisselt zou dat effect elke render
+   * opnieuw laten draaien — en daarmee het laden eindeloos herstarten.
+   */
+  const toastRef = useRef(toast);
+  useEffect(() => { toastRef.current = toast; }, [toast]);
 
   // Spiegels van state die schrijfacties nodig hebben. Callbacks worden vaak
   // via setTimeout of een oude closure aangeroepen; via een ref rekenen ze
@@ -289,6 +299,50 @@ export function useWordStore() {
     mergeSessions(delivered);
   }, [sendPendingSession, mergeSessions]);
 
+  /**
+   * Stuur één FSRS-state naar de database en controleer dat hij is aangekomen.
+   *
+   * `.select()` is hier geen luxe. Een upsert die in de conflict-tak valt op een
+   * rij die je door RLS niet mag zien, raakt nul rijen en meldt geen fout. Dat
+   * was niet te onderscheiden van succes: het scherm beloofde "+3 dagen", de
+   * lokale kaart werd bijgewerkt, en de volgende dag was het woord weer nieuw.
+   * Geen teruggekomen rij is vanaf nu een mislukking.
+   */
+  const sendFsrsState = useCallback(async (
+    uid: string, cardId: string, mode: FsrsMode, state: FsrsState,
+  ): Promise<{ ok: boolean; reason?: string }> => {
+    const row = {
+      card_id:          cardId,
+      user_id:          uid,
+      mode,
+      stability:        state.stability,
+      difficulty:       state.difficulty,
+      due_date:         state.dueDate,
+      last_reviewed_at: state.lastReviewedAt,
+    };
+
+    const { data, error } = await withRetry<Record<string, unknown>[]>(() => supabase
+      .from('card_fsrs_states')
+      .upsert(row, { onConflict: 'card_id,mode' })
+      .select());
+
+    if (error) return { ok: false, reason: error.message };
+    if (!Array.isArray(data) || data.length === 0) {
+      return { ok: false, reason: 'de database nam de rij niet aan' };
+    }
+    return { ok: true };
+  }, []);
+
+  /** Stuur alsnog wat er van eerdere sessies is blijven staan. */
+  const flushPendingFsrsStates = useCallback(async () => {
+    const uid = userIdRef.current;
+    if (!uid) return;
+    for (const pending of readPendingFsrsStates(uid)) {
+      const { ok } = await sendFsrsState(uid, pending.cardId, pending.mode, pending.state);
+      if (ok) unqueuePendingFsrsState(uid, pending.cardId, pending.mode);
+    }
+  }, [sendFsrsState]);
+
   const loadAll = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
@@ -329,6 +383,17 @@ export function useWordStore() {
       console.error('Laden user_stats mislukt:', statsRes.error.message);
     }
 
+    if (fsrsRes.error) {
+      // Zonder states lijkt de hele woordenschat gloednieuw, en overschrijft een
+      // sessie de echte geschiedenis. Dat mag niet stil gebeuren.
+      console.error('Laden FSRS-states mislukt:', fsrsRes.error.message);
+      toastRef.current({
+        title: 'Voortgang niet geladen',
+        description: 'Oefen nu niet — je geschiedenis zou overschreven worden. Probeer het later opnieuw.',
+        variant: 'destructive',
+      });
+    }
+
     if (fsrsRes.data) {
       const map: FsrsStatesMap = {};
       for (const row of fsrsRes.data) {
@@ -341,7 +406,8 @@ export function useWordStore() {
 
     setLoading(false);
     void flushPendingSessions();
-  }, [applyStats, flushPendingSessions]);
+    void flushPendingFsrsStates();
+  }, [applyStats, flushPendingSessions, flushPendingFsrsStates]);
 
   useEffect(() => {
     loadAll();
@@ -452,30 +518,29 @@ export function useWordStore() {
   ) => {
     const uid = userIdRef.current;
     if (!uid) return;
-    const row = {
-      card_id:          cardId,
-      user_id:          uid,
-      mode,
-      stability:        state.stability,
-      difficulty:       state.difficulty,
-      due_date:         state.dueDate,
-      last_reviewed_at: state.lastReviewedAt,
-    };
 
-    const { error } = await withRetry(() => supabase
-      .from('card_fsrs_states')
-      .upsert(row, { onConflict: 'card_id,mode' }));
+    // Eerst in de outbox, dan pas versturen — zoals bij sessies. Sluit de app
+    // halverwege, dan gaat de beoordeling bij de volgende start alsnog mee.
+    queuePendingFsrsState(uid, { cardId, mode, state });
 
-    if (error) {
-      toast({ title: 'Fout bij FSRS opslaan', description: error.message, variant: 'destructive' });
-      return;
-    }
-
+    // De lokale kaart gaat meteen bij: de sessie loopt door en het overzicht
+    // moet kloppen zodra je terug bent. De outbox bewaakt de database-kant.
     setFsrsStates(prev => ({
       ...prev,
       [cardId]: { ...(prev[cardId] ?? {}), [mode]: state },
     }));
-  }, [toast]);
+
+    const { ok, reason } = await sendFsrsState(uid, cardId, mode, state);
+    if (ok) {
+      unqueuePendingFsrsState(uid, cardId, mode);
+      return;
+    }
+    toast({
+      title: 'Beoordeling nog niet opgeslagen',
+      description: `${reason} — hij wordt bij de volgende start opnieuw geprobeerd.`,
+      variant: 'destructive',
+    });
+  }, [sendFsrsState, toast]);
 
   /** Schrijf een FSRS review-log naar de database. */
   const addReviewLog = useCallback(async (log: FsrsReviewLog) => {

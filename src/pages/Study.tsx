@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/components/StoreProvider';
 import {
   ANCHOR_DAYS, GRADE, FSRS_MODES, buildSession,
-  emptyFsrsState, gradeForAnswer, intervalShort, intervalTone, previewInterval, reviewCard,
+  gradeForAnswer, intervalShort, intervalTone, previewInterval, reviewCard, startingState,
 } from '@/lib/fsrs';
 import { detectInputMedium } from '@/lib/input-medium';
 import type { FsrsGrade, FsrsMode, FsrsState, QueueItem } from '@/lib/fsrs';
@@ -38,7 +38,7 @@ const HOLD_MS  = 1000;
 export default function Study() {
   const navigate = useNavigate();
   const {
-    words, stats, sessions, fsrsStates, reviewLogs,
+    words, stats, sessions, fsrsStates, reviewLogs, loading,
     upsertFsrsState, addReviewLog, updateStreak, addSession, updateWord,
   } = useStore();
 
@@ -50,7 +50,10 @@ export default function Study() {
   const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
-    if (initialized || words.length === 0) return;
+    // Wachten tot de store klaar is. Arriveren de woorden vóór hun FSRS-states,
+    // dan lijkt de hele woordenschat gloednieuw — en overschrijft elke beurt in
+    // deze sessie de echte geschiedenis met een verse state.
+    if (loading || initialized || words.length === 0) return;
 
     const allCardStates: Record<string, Partial<Record<FsrsMode, FsrsState>>> = {};
     for (const w of words) allCardStates[w.id] = fsrsStates[w.id] ?? {};
@@ -65,7 +68,7 @@ export default function Study() {
 
     setQueue(resolved);
     setInitialized(true);
-  }, [words, fsrsStates, initialized, today, stats.dailyGoal]);
+  }, [loading, words, fsrsStates, initialized, today, stats.dailyGoal]);
 
   // ─── UI-state ───────────────────────────────────────────────────────────
   const [typedAnswer, setTypedAnswer] = useState('');
@@ -192,7 +195,7 @@ export default function Study() {
     item: QueuedWord, grade: number, usedMode: FsrsMode,
     responseMs: number | null, thinkMs: number | null,
   ) => {
-    const existing = fsrsStates[item.cardId]?.[usedMode] ?? emptyFsrsState();
+    const existing = startingState(fsrsStates[item.cardId] ?? {}, usedMode);
     const { newState, logPartial } = reviewCard(existing, grade, today);
 
     // Een woord dat nu pas de verankerdrempel passeert, telt als vast geworden.
@@ -328,10 +331,18 @@ export default function Study() {
    */
   const speedContext = useCallback((cardId: string, usedMode: FsrsMode) => ({
     repeat:      wordResultsRef.current.has(cardId),
-    firstReview: (fsrsStates[cardId]?.[usedMode]?.stability ?? null) === null,
+    firstReview: startingState(fsrsStates[cardId] ?? {}, usedMode).stability === null,
   }), [fsrsStates]);
 
-  const commit = useCallback((
+  /**
+   * Beoordelen en wegschrijven — meteen bij het antwoord.
+   *
+   * Bewust los van het opschuiven van de wachtrij. Dat gebeurt bij een goed
+   * antwoord pas een seconde later, zodat de flits en het briefje te zien zijn;
+   * hing het wegschrijven daaraan vast, dan beloofde het scherm "+3 dagen"
+   * terwijl er in dat gat nog niets onderweg was.
+   */
+  const record = useCallback((
     item: QueuedWord, usedMode: FsrsMode, kind: 'mc' | 'typed',
     result: MatchResult, responseMs: number | null, thinkMs: number | null,
   ) => {
@@ -345,7 +356,12 @@ export default function Study() {
 
     void persistReview(item, grade, usedMode, responseMs, thinkMs);
     wordResultsRef.current.set(item.cardId, result === 'correct');
+  }, [persistReview, speedContext]);
 
+  /** De wachtrij opschuiven, inclusief wat er in deze sessie nog terug moet. */
+  const advance = useCallback((
+    item: QueuedWord, usedMode: FsrsMode, result: MatchResult,
+  ) => {
     // Een geslaagde kennismaking wordt in dezelfde sessie omgezet in productie.
     const introduced = usedMode === 'mc' || usedMode === 'listen_type';
     if (introduced && result === 'correct') {
@@ -360,7 +376,15 @@ export default function Study() {
     }
 
     moveToNext();
-  }, [persistReview, queueFollowUp, moveToNext, speedContext]);
+  }, [queueFollowUp, moveToNext]);
+
+  const commit = useCallback((
+    item: QueuedWord, usedMode: FsrsMode, kind: 'mc' | 'typed',
+    result: MatchResult, responseMs: number | null, thinkMs: number | null,
+  ) => {
+    record(item, usedMode, kind, result, responseMs, thinkMs);
+    advance(item, usedMode, result);
+  }, [record, advance]);
 
   const pause = useCallback((
     item: QueuedWord, usedMode: FsrsMode, kind: 'mc' | 'typed',
@@ -389,19 +413,19 @@ export default function Study() {
       // Luisteren is een kennismaking: dat woord komt verderop in deze sessie
       // terug als typoefening, dus een belofte in dagen zou er onwaar zijn.
       if (usedMode !== 'listen_type') {
-        const existing = fsrsStates[currentItem.cardId]?.[usedMode] ?? emptyFsrsState();
+        const existing = startingState(fsrsStates[currentItem.cardId] ?? {}, usedMode);
         const days     = previewInterval(existing, grade, today);
         setIntervalNote({ text: intervalShort(days), tone: intervalTone(days) });
       }
 
-      setTimeout(
-        () => commit(currentItem, usedMode, 'typed', result, responseMs, thinkMs),
-        HOLD_MS,
-      );
+      // Eerst wegschrijven, dan pas kijken: de seconde hierna is voor de flits
+      // en het briefje, niet om de beoordeling op te houden.
+      record(currentItem, usedMode, 'typed', result, responseMs, thinkMs);
+      setTimeout(() => advance(currentItem, usedMode, result), HOLD_MS);
       return;
     }
     pause(currentItem, usedMode, 'typed', typedAnswer, result, responseMs, thinkMs);
-  }, [currentItem, typedAnswer, effectiveMode, evaluateTyped, commit, pause,
+  }, [currentItem, typedAnswer, effectiveMode, evaluateTyped, record, advance, pause,
       fsrsStates, today, thinkMsNow, speedContext]);
 
   const handleSkip = useCallback(() => {
@@ -417,11 +441,18 @@ export default function Study() {
 
     const isCorrect = selected === activeMeaningRef.current.replace(/\s*\([^)]+\)/g, '').trim();
     if (isCorrect) {
-      setTimeout(() => commit(currentItem, currentItem.mode, 'mc', 'correct', null, null), 700);
+      // `effectiveMode`, niet `currentItem.mode`: staat luisteren gedempt, dan
+      // zie je een meerkeuzekaart en hoort de state daar ook onder te landen.
+      const usedMode = effectiveMode(currentItem);
+      record(currentItem, usedMode, 'mc', 'correct', null, null);
+      setTimeout(() => advance(currentItem, usedMode, 'correct'), 700);
       return;
     }
-    setTimeout(() => pause(currentItem, currentItem.mode, 'mc', selected, 'wrong', null, null), 700);
-  }, [currentItem, selectedMC, commit, pause]);
+    setTimeout(
+      () => pause(currentItem, effectiveMode(currentItem), 'mc', selected, 'wrong', null, null),
+      700,
+    );
+  }, [currentItem, selectedMC, record, advance, pause, effectiveMode]);
 
   const handleContinue = useCallback(() => {
     if (!pending) return;
@@ -540,7 +571,7 @@ export default function Study() {
   }
 
   if (pending) {
-    const existing = fsrsStates[pending.item.cardId]?.[pending.usedMode] ?? emptyFsrsState();
+    const existing = startingState(fsrsStates[pending.item.cardId] ?? {}, pending.usedMode);
     const grade = gradeForAnswer(
       pending.kind === 'mc' ? 'mc' : pending.usedMode,
       pending.result, pending.thinkMs,

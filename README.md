@@ -63,13 +63,34 @@ CREATE POLICY "Users can write own data" ON user_stats     FOR ALL USING (auth.u
 Als je data uit Lovable's Supabase hebt geëxporteerd, staan er oude user_id's in. Vervang ze via de SQL Editor:
 
 ```sql
-UPDATE profiles       SET user_id = '<nieuw-id>' WHERE user_id = '<oud-id>';
-UPDATE study_sessions SET user_id = '<nieuw-id>' WHERE user_id = '<oud-id>';
-UPDATE user_stats     SET user_id = '<nieuw-id>' WHERE user_id = '<oud-id>';
-UPDATE words          SET user_id = '<nieuw-id>' WHERE user_id = '<oud-id>';
+UPDATE profiles          SET user_id = '<nieuw-id>' WHERE user_id = '<oud-id>';
+UPDATE study_sessions    SET user_id = '<nieuw-id>' WHERE user_id = '<oud-id>';
+UPDATE user_stats        SET user_id = '<nieuw-id>' WHERE user_id = '<oud-id>';
+UPDATE words             SET user_id = '<nieuw-id>' WHERE user_id = '<oud-id>';
+UPDATE card_fsrs_states  SET user_id = '<nieuw-id>' WHERE user_id = '<oud-id>';
+UPDATE review_logs       SET user_id = '<nieuw-id>' WHERE user_id = '<oud-id>';
 ```
 
 Je nieuwe user ID vind je in **Authentication → Users** na de eerste login.
+
+> **Sla `card_fsrs_states` en `review_logs` niet over.** Die twee tabellen stonden
+> hier lang niet bij, en dat had een vervelend gevolg. Blijft er een oud user_id
+> in staan, dan is de rij onzichtbaar voor `SELECT` (de RLS-policy vergelijkt met
+> `auth.uid()::text`) maar bezet hij nog wél de sleutel `(card_id, mode)`. Een
+> nieuwe beoordeling valt dan in de conflict-tak van de upsert, raakt nul rijen
+> en meldt géén fout. Gevolg: het scherm zegt dat een woord over drie dagen
+> terugkomt, en de volgende dag is die planning weg en begint het woord opnieuw.
+>
+> Controleer of er zulke rijen zijn:
+>
+> ```sql
+> SELECT count(*) FROM card_fsrs_states cfs
+> JOIN words w ON w.id::text = cfs.card_id
+> WHERE cfs.user_id IS DISTINCT FROM w.user_id::text;
+> ```
+>
+> Staat daar niet nul, draai dan
+> `supabase/migrations/20260822000000_repair_fsrs_ownership.sql`.
 
 ### 5. Omgevingsvariabelen instellen
 
