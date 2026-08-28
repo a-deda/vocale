@@ -30,13 +30,17 @@ vi.mock('@/integrations/supabase/client', () => ({
     from: () => ({
       select: () => {
         // De statistiekenpagina doet twee queries: een venster op de recente
-        // reviews (`order().limit()`) en de overschrijdingen (`or().order()`).
-        // Allebei leeg; dan valt de pagina terug op wat de store al heeft.
-        const empty = Promise.resolve({ data: null, error: null });
+        // reviews en de overschrijdingen. Beide worden gepagineerd opgehaald,
+        // dus de keten eindigt op `range()`. Allebei leeg; dan valt de pagina
+        // terug op wat de store al heeft.
+        const empty = Promise.resolve({ data: null, error: null, count: null });
         const chain = {
           eq:    () => ({ maybeSingle: () => Promise.resolve({ data: null }) }),
           or:    () => chain,
-          order: () => Object.assign(empty, { limit: () => empty }),
+          order: () => chain,
+          limit: () => empty,
+          range: () => empty,
+          then:  empty.then.bind(empty),
         };
         return chain;
       },

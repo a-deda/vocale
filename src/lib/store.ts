@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import type { FsrsMode, FsrsState, FsrsReviewLog } from '@/lib/fsrs';
 import { FSRS_MODES, cappedDueDate, emptyFsrsState } from '@/lib/fsrs';
+import { fetchAll, isComplete } from '@/lib/fetch-all';
 import {
   PendingSession, makeClientId, readPendingSessions,
   queuePendingSession, unqueuePendingSession,
@@ -343,23 +344,49 @@ export function useWordStore() {
     }
   }, [sendFsrsState]);
 
+  /**
+   * De voortgang is niet (volledig) binnen. Niet oefenen: elke beurt op een
+   * woord waarvan de state ontbreekt wordt als eerste beurt geboekt en zet de
+   * opgebouwde geschiedenis terug op drie dagen.
+   */
+  const warnStatesIncomplete = useCallback(() => {
+    toastRef.current({
+      title: 'Voortgang niet geladen',
+      description: 'Oefen nu niet — je geschiedenis zou overschreven worden. Probeer het later opnieuw.',
+      variant: 'destructive',
+    });
+  }, []);
+
   const loadAll = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
     setUserId(user.id);
     userIdRef.current = user.id;
 
+    // Woorden, sessies en states worden gepagineerd opgehaald: een kale select
+    // levert bij Supabase hooguit `max-rows` rijen op — standaard duizend, stil
+    // afgekapt. Zie `fetchAll`. De sortering is niet cosmetisch maar de
+    // voorwaarde voor betrouwbare paginering.
     const [wordsRes, statsRes, sessionsRes, fsrsRes, logsRes] = await Promise.all([
-      supabase.from('words').select('*').order('created_at', { ascending: false }),
+      fetchAll((from, to) => supabase.from('words').select('*', { count: 'exact' })
+        .order('created_at', { ascending: false }).order('id').range(from, to)),
       // maybeSingle i.p.v. single: een ontbrekende rij is geen fout maar iets
       // dat we hier aanmaken. Met single bleef stats op de defaults staan en
       // schreef elke latere update naar nul rijen — zonder foutmelding.
       supabase.from('user_stats').select('*').eq('user_id', user.id).maybeSingle(),
-      supabase.from('study_sessions').select('*').order('date', { ascending: false }),
-      supabase.from('card_fsrs_states').select('*'),
+      fetchAll((from, to) => supabase.from('study_sessions').select('*', { count: 'exact' })
+        .order('date', { ascending: false }).order('id').range(from, to)),
+      // Op de primaire sleutel gesorteerd: (card_id, mode).
+      fetchAll((from, to) => supabase.from('card_fsrs_states').select('*', { count: 'exact' })
+        .order('card_id').order('mode').range(from, to)),
+      // Dit venster is een keuze en geen afkapping: het overzicht heeft niet
+      // meer nodig, en het statistiekenscherm haalt zelf dieper op.
       supabase.from('review_logs').select('*')
         .order('reviewed_at', { ascending: false }).limit(REVIEW_LOG_WINDOW),
     ]);
+
+    if (wordsRes.error)    console.error('Laden woorden mislukt:', wordsRes.error.message);
+    if (sessionsRes.error) console.error('Laden sessies mislukt:', sessionsRes.error.message);
 
     if (wordsRes.data)    setWords(wordsRes.data.map(dbToWord));
     if (sessionsRes.data) setSessions(sessionsRes.data.map(dbToSession));
@@ -383,15 +410,17 @@ export function useWordStore() {
       console.error('Laden user_stats mislukt:', statsRes.error.message);
     }
 
+    // Zonder states lijkt de hele woordenschat gloednieuw, en overschrijft een
+    // sessie de echte geschiedenis. Een half geladen kaart doet dat net zo goed,
+    // alleen voor minder woorden — dus geldt dezelfde waarschuwing.
     if (fsrsRes.error) {
-      // Zonder states lijkt de hele woordenschat gloednieuw, en overschrijft een
-      // sessie de echte geschiedenis. Dat mag niet stil gebeuren.
       console.error('Laden FSRS-states mislukt:', fsrsRes.error.message);
-      toastRef.current({
-        title: 'Voortgang niet geladen',
-        description: 'Oefen nu niet — je geschiedenis zou overschreven worden. Probeer het later opnieuw.',
-        variant: 'destructive',
-      });
+      warnStatesIncomplete();
+    } else if (!isComplete(fsrsRes)) {
+      console.error(
+        `Laden FSRS-states onvolledig: ${fsrsRes.data?.length ?? 0} van ${fsrsRes.total}`,
+      );
+      warnStatesIncomplete();
     }
 
     if (fsrsRes.data) {
@@ -407,7 +436,7 @@ export function useWordStore() {
     setLoading(false);
     void flushPendingSessions();
     void flushPendingFsrsStates();
-  }, [applyStats, flushPendingSessions, flushPendingFsrsStates]);
+  }, [applyStats, flushPendingSessions, flushPendingFsrsStates, warnStatesIncomplete]);
 
   useEffect(() => {
     loadAll();
