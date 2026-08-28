@@ -12,8 +12,17 @@ import { renderHook, act, waitFor } from '@testing-library/react';
  */
 
 type Row = Record<string, unknown>;
-type Result = { data: Row | Row[] | null; error: { message: string; code?: string } | null };
-type Call = { table: string; op: string; payload: Row; filters: Row; single: boolean };
+type Result = {
+  data: Row | Row[] | null;
+  error: { message: string; code?: string } | null;
+  /** Het totaal dat PostgREST meldt bij `count: 'exact'`. */
+  count?: number | null;
+};
+type Call = {
+  table: string; op: string; payload: Row; filters: Row; single: boolean;
+  /** Het gevraagde bereik, als de aanroeper pagineert. */
+  range: [number, number] | null;
+};
 type Handler = (call: Call) => Result;
 
 interface Builder extends PromiseLike<Result> {
@@ -25,6 +34,7 @@ interface Builder extends PromiseLike<Result> {
   eq(column: string, value: unknown): Builder;
   order(): Builder;
   limit(n: number): Builder;
+  range(from: number, to: number): Builder;
   single(): Builder;
   maybeSingle(): Builder;
 }
@@ -34,7 +44,9 @@ const H = vi.hoisted(() => {
   let handler: Handler = () => ({ data: null, error: null });
 
   function builder(table: string): Builder {
-    const call: Call = { table, op: 'select', payload: {}, filters: {}, single: false };
+    const call: Call = {
+      table, op: 'select', payload: {}, filters: {}, single: false, range: null,
+    };
     const b: Builder = {
       select:      () => b,
       insert:      (p) => { call.op = 'insert'; call.payload = p; return b; },
@@ -44,6 +56,7 @@ const H = vi.hoisted(() => {
       eq:          (k, v) => { call.filters[k] = v; return b; },
       order:       () => b,
       limit:       () => b,
+      range:       (from, to) => { call.range = [from, to]; return b; },
       single:      () => { call.single = true; return b; },
       maybeSingle: () => { call.single = true; return b; },
       then: (resolve, reject) => {
@@ -332,5 +345,103 @@ describe('FSRS-state opslaan — een write die niets doet is geen succes', () =>
 
     const write = H.calls.find(c => c.table === 'card_fsrs_states' && c.op === 'upsert');
     expect(write!.payload.card_id).toBe('w9');
+  });
+});
+
+
+describe('FSRS-states laden — een half antwoord is geen antwoord', () => {
+  /**
+   * De melding die dit bewaakt: woorden die gisteren beoordeeld waren stonden
+   * vandaag weer open en kregen opnieuw "+3 dagen". Oorzaak was de leeskant.
+   * Supabase geeft per verzoek hooguit `max-rows` rijen terug — standaard
+   * duizend — zonder dat te melden, en de kale select vroeg er nooit meer op.
+   * De states die buiten dat antwoord vielen lieten hun woord gloednieuw lijken,
+   * waarna de eerstvolgende beurt de opgebouwde geschiedenis overschreef.
+   */
+  const PAGE = 1000;
+
+  function fsrsRow(i: number): Row {
+    return {
+      card_id: `w${String(i).padStart(4, '0')}`,
+      mode: 'typed_nl_it',
+      stability: 90 + i,
+      difficulty: 5,
+      due_date: '2026-11-01',
+      last_reviewed_at: '2026-08-27T10:00:00.000Z',
+    };
+  }
+
+  /** Een server met `total` states die er nooit meer dan `cap` per keer geeft. */
+  function paged(total: number, cap = PAGE): Handler {
+    return (call: Call): Result => {
+      if (call.table !== 'card_fsrs_states' || call.op !== 'select') {
+        return defaultHandler(call);
+      }
+      const [from, to] = call.range ?? [0, total - 1];
+      const end = Math.min(to + 1, from + cap, total);
+      const page: Row[] = [];
+      for (let i = from; i < end; i++) page.push(fsrsRow(i));
+      return { data: page, error: null, count: total };
+    };
+  }
+
+  function stateSelects() {
+    return H.calls.filter(c => c.table === 'card_fsrs_states' && c.op === 'select');
+  }
+
+  it('haalt de tweede pagina op zodra de eerste vol is', async () => {
+    H.setHandler(paged(1200));
+    const { result } = await renderStore();
+
+    await waitFor(() => expect(Object.keys(result.current.fsrsStates)).toHaveLength(1200));
+    expect(stateSelects()).toHaveLength(2);
+    expect(stateSelects()[0].range).toEqual([0, 999]);
+    // Een volle pagina blijven vragen mag: een bereik dat begint binnen de
+    // tabel en verder reikt dan de laatste rij levert gewoon de rest op.
+    expect(stateSelects()[1].range).toEqual([1000, 1999]);
+
+    // De laatste rij is precies degene die vroeger wegviel.
+    expect(result.current.fsrsStates.w1199?.typed_nl_it?.stability).toBe(90 + 1199);
+    expect(H.toast).not.toHaveBeenCalled();
+  });
+
+  it('vraagt één pagina op als de tabel daarin past', async () => {
+    H.setHandler(paged(40));
+    const { result } = await renderStore();
+
+    await waitFor(() => expect(Object.keys(result.current.fsrsStates)).toHaveLength(40));
+    expect(stateSelects()).toHaveLength(1);
+    expect(H.toast).not.toHaveBeenCalled();
+  });
+
+  it('waarschuwt als er minder states binnenkomen dan de database meldt', async () => {
+    // Een server die na de eerste pagina niets meer teruggeeft: dan is de kaart
+    // onvolledig, en oefenen zou geschiedenis wissen.
+    H.setHandler((call: Call): Result => {
+      if (call.table !== 'card_fsrs_states' || call.op !== 'select') {
+        return defaultHandler(call);
+      }
+      const [from] = call.range ?? [0, 0];
+      if (from > 0) return { data: [], error: null, count: 1200 };
+      const page: Row[] = [];
+      for (let i = 0; i < PAGE; i++) page.push(fsrsRow(i));
+      return { data: page, error: null, count: 1200 };
+    });
+
+    await renderStore();
+
+    await waitFor(() => expect(H.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Voortgang niet geladen' }),
+    ));
+  });
+
+  it('haalt alles op ook als de server minder geeft dan gevraagd', async () => {
+    // `max-rows` lager dan onze paginagrootte: elke pagina is kort. Zou een
+    // korte pagina als einde gelden, dan bleef het bij de eerste 300.
+    H.setHandler(paged(900, 300));
+    const { result } = await renderStore();
+
+    await waitFor(() => expect(Object.keys(result.current.fsrsStates)).toHaveLength(900));
+    expect(H.toast).not.toHaveBeenCalled();
   });
 });

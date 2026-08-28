@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ANCHOR_DAYS } from '@/lib/fsrs';
+import { fetchAll } from '@/lib/fetch-all';
 import type { StatsLog } from '@/lib/stats';
 
 /**
  * Zoveel recente reviews haalt het statistiekenscherm op. Het venster dat de
  * store laadt staat op 500 — genoeg voor de cijfers op het overzicht, maar bij
  * dagelijks gebruik nog geen drie weken.
+ *
+ * Dit venster wordt gepagineerd opgehaald: één verzoek levert bij Supabase
+ * hooguit `max-rows` rijen op (standaard duizend), dus een kale `limit(5000)`
+ * gaf er stil duizend.
  */
 const RECENT_WINDOW = 5000;
 
@@ -50,7 +55,8 @@ export interface ReviewHistory {
  * overschrijdingen af en loopt de lijn vlak door op de huidige waarde. Je zou
  * dan zien dat je vorig jaar al net zoveel woorden vast had als nu.
  *
- * Daarom worden de overschrijdingen apart en ongelimiteerd opgehaald. Een woord
+ * Daarom worden de overschrijdingen apart en ongelimiteerd opgehaald — in
+ * pagina's, want één verzoek geeft er nooit meer dan `max-rows`. Een woord
  * gaat hooguit een paar keer over de drempel, dus dat zijn er over jaren een
  * paar honderd — een fractie van de reviews eromheen.
  *
@@ -67,11 +73,15 @@ export function useReviewHistory(fallback: StatsLog[]): ReviewHistory {
     let cancelled = false;
 
     void (async () => {
-      const { data, error } = await supabase
-        .from('review_logs')
-        .select(COLUMNS)
-        .order('reviewed_at', { ascending: false })
-        .limit(RECENT_WINDOW);
+      const { data, error } = await fetchAll(
+        (from, to) => supabase
+          .from('review_logs')
+          .select(COLUMNS, { count: 'exact' })
+          .order('reviewed_at', { ascending: false })
+          .order('id')
+          .range(from, to),
+        { max: RECENT_WINDOW },
+      );
       if (!cancelled && !error && data) setRecent(data.map(toLog));
     })();
 
@@ -80,14 +90,16 @@ export function useReviewHistory(fallback: StatsLog[]): ReviewHistory {
       // `initialStability` komt niet hoger dan W[3] ≈ 15,7 dagen, dus zo'n beurt
       // kan de drempel onmogelijk halen. De rekenlaag leest `sBefore ?? 0` en
       // zou hem anders wél als overschrijding tellen.
-      const { data, error } = await supabase
+      const { data, error } = await fetchAll((from, to) => supabase
         .from('review_logs')
-        .select(COLUMNS)
+        .select(COLUMNS, { count: 'exact' })
         .or(
           `and(s_before.lt.${ANCHOR_DAYS},s_after.gte.${ANCHOR_DAYS}),` +
           `and(s_before.gte.${ANCHOR_DAYS},s_after.lt.${ANCHOR_DAYS})`,
         )
-        .order('reviewed_at', { ascending: false });
+        .order('reviewed_at', { ascending: false })
+        .order('id')
+        .range(from, to));
       if (!cancelled && !error && data) setCrossings(data.map(toLog));
     })();
 

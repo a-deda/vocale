@@ -58,6 +58,23 @@ CREATE POLICY "Users can write own data" ON study_sessions FOR ALL USING (auth.u
 CREATE POLICY "Users can write own data" ON user_stats     FOR ALL USING (auth.uid()::text = user_id);
 ```
 
+### 3b. Grens op het aantal rijen per verzoek
+
+De REST-API van Supabase geeft per verzoek hooguit `max-rows` rijen terug
+(**Settings → API → Max rows**, standaard 1000) en meldt dat niet: je krijgt een
+volle array en geen fout.
+
+Elke tabel die met het gebruik meegroeit wordt daarom in pagina's gelezen, via
+`fetchAll` in `src/lib/fetch-all.ts` — met een vaste sortering, want zonder
+`ORDER BY` kan paginering rijen dubbel of niet teruggeven. Voeg je een query toe
+op `words`, `card_fsrs_states`, `study_sessions` of `review_logs`, gebruik die
+helper dan ook.
+
+Waarom dit strak moet: zonder sortering levert Postgres de rijen ruwweg in
+fysieke volgorde, en een bijgewerkte rij schuift naar achteren. Uitgerekend de
+zojuist beoordeelde woorden vielen zo buiten het antwoord, laadden zonder
+voortgang, en verloren bij de volgende beurt hun opgebouwde geschiedenis.
+
 ### 4. User ID's bijwerken (bij data-migratie)
 
 Als je data uit Lovable's Supabase hebt geëxporteerd, staan er oude user_id's in. Vervang ze via de SQL Editor:
